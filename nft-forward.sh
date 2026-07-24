@@ -807,30 +807,82 @@ Update_Shell() {
     fi
 }
 
+# --- 安装 Realm 转发 ---
+install_realm() {
+    echo -e "${GREEN}> 开始部署 Realm 转发服务...${PLAIN}"
+    mkdir -p /etc/realm
+    local arch=$(uname -m)
+    local r_file=""
+    case "$arch" in
+        x86_64) r_file="realm-x86_64-unknown-linux-gnu.tar.gz" ;;
+        aarch64|arm64) r_file="realm-aarch64-unknown-linux-gnu.tar.gz" ;;
+        *) echo -e "${RED}不支持的架构: $arch${PLAIN}"; return ;;
+    esac
+
+    local url="https://github.com/zhboner/realm/releases/latest/download/${r_file}"
+    echo -e "${YELLOW}下载 Realm (${url})...${PLAIN}"
+    if curl -sL "$url" -o "/tmp/${r_file}" || wget -O "/tmp/${r_file}" "$url"; then
+        tar -xzf "/tmp/${r_file}" -C /usr/local/bin/ && chmod +x /usr/local/bin/realm
+        rm -f "/tmp/${r_file}"
+        
+        # 默认基础配置
+        if [ ! -f /etc/realm/config.toml ]; then
+            cat > /etc/realm/config.toml <<EOF
+[network]
+no_tcp = false
+use_udp = true
+EOF
+        fi
+
+        # 创建 systemd 服务
+        cat > /etc/systemd/system/realm.service <<EOF
+[Unit]
+Description=Realm Port Forwarding Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/realm -c /etc/realm/config.toml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable realm
+        systemctl restart realm
+        echo -e "${GREEN}Realm 部署完成，服务已启动！${PLAIN}"
+    else
+        echo -e "${RED}Realm 下载失败，请检查网络联通性。${PLAIN}"
+    fi
+}
+
 # --- 主菜单 ---
 show_menu() {
     clear
     echo "################################################"
-    echo "#    nftables 一键端口转发脚本 (v${sh_ver})      #"
+    echo "#    nftables & Realm 端口转发脚本 (v${sh_ver})  #"
     echo "################################################"
     echo -e " nftables 状态: $(get_nft_status)"
     echo -e " 面板 状态:     $(get_panel_status)"
     echo "------------------------------------------------"
     echo "  1. 安装 / 重置 nftables 转发"
-    echo "  2. 卸载转发配置"
+    echo "  2. 安装 / 重置 Realm 转发"
+    echo "  3. 卸载转发配置"
     echo "------------------------------------------------"
-    echo "  3. 安装 Caddy HTTPS 代理"
-    echo "  4. 安装 Xray Reality"
-    echo "  5. 安装 Shadowsocks Rust"
-    echo "  6. 查看当前转发配置"
-    echo "  7. 查看已部署节点"
+    echo "  4. 安装 Caddy HTTPS 代理"
+    echo "  5. 安装 Xray Reality"
+    echo "  6. 安装 Shadowsocks Rust"
+    echo "  7. 查看当前转发配置"
+    echo "  8. 查看已部署节点"
     echo "------------------------------------------------"
-    echo "  8. 启动 nftables"
-    echo "  9. 停止 nftables"
-    echo "  10. 重启 nftables"
+    echo "  9. 启动 nftables"
+    echo "  10. 停止 nftables"
+    echo "  11. 重启 nftables"
     echo "------------------------------------------------"
-    echo "  11. 更新脚本"
-    echo "  12. 面板管理"
+    echo "  12. 更新脚本"
+    echo "  13. 面板管理"
     echo "  0. 退出脚本"
     echo "################################################"
 }
@@ -847,25 +899,27 @@ main() {
 
     while true; do
         show_menu
-        read -p "选择 [0-12]: " opt
+        read -p "选择 [0-13]: " opt
         case $opt in
             1) install_nftables ;;
-            2) uninstall_nftables ;;
-            3) run_proxy_script "https.sh" ;;
-            4) run_proxy_script "reality.sh" ;;
-            5) run_proxy_script "ss-rust.sh" ;;
-            6) view_rules ;;
-            7) view_nodes ;;
-            8) start_service ;;
-            9) stop_service ;;
-            10) restart_service ;;
-            11) Update_Shell ;;
-            12) panel_management ;;
+            2) install_realm ;;
+            3) uninstall_nftables ;;
+            4) run_proxy_script "https.sh" ;;
+            5) run_proxy_script "reality.sh" ;;
+            6) run_proxy_script "ss-rust.sh" ;;
+            7) view_rules ;;
+            8) view_nodes ;;
+            9) start_service ;;
+            10) stop_service ;;
+            11) restart_service ;;
+            12) Update_Shell ;;
+            13) panel_management ;;
             0) exit 0 ;;
             *) echo "无效选择" ;;
         esac
         [ "$opt" != "0" ] && read -p "按回车返回..."
     done
 }
+
 
 main

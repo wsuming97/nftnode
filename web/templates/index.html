@@ -3,22 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>nftables 转发管理面板</title>
+    <title>nftables & Realm 端口转发管理面板</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg-primary: #f0f2f5;
+            --bg-primary: #f8fafc;
+            --bg-sidebar: #0f172a;
+            --sidebar-text: #94a3b8;
+            --sidebar-text-active: #ffffff;
+            --sidebar-hover: #1e293b;
+            --sidebar-active-bg: #4f46e5;
             --bg-secondary: #ffffff;
             --bg-card: #ffffff;
-            --bg-input: #f5f7fa;
-            --border: rgba(0,0,0,0.06);
-            --border-hover: rgba(0,0,0,0.12);
-            --text-primary: #111827;
-            --text-secondary: #6b7280;
-            --text-muted: #9ca3af;
+            --bg-input: #f1f5f9;
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
             --accent: #4f46e5;
             --accent-light: #eef2ff;
             --accent-hover: #4338ca;
@@ -30,9 +35,11 @@
             --warning-light: #fffbeb;
             --radius: 12px;
             --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
-            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.04);
+            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.09), 0 4px 6px -4px rgba(0,0,0,0.04);
+            --sidebar-width: 240px;
+            --sidebar-collapsed-width: 64px;
         }
 
         body {
@@ -40,25 +47,134 @@
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
+            overflow-x: hidden;
         }
 
-        /* --- SVG Icon Base --- */
-        .icon-svg {
-            width: 18px;
-            height: 18px;
+        /* --- Layout --- */
+        .app-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* --- Sidebar --- */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-sidebar);
+            color: var(--sidebar-text);
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: fixed;
+            top: 0; bottom: 0; left: 0;
+            z-index: 200;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+        }
+        .app-layout.collapsed .sidebar {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        .sidebar-brand {
+            height: 64px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .sidebar-brand .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
             flex-shrink: 0;
         }
-        .icon-svg-sm {
-            width: 15px;
-            height: 15px;
+        .sidebar-brand span {
+            font-weight: 700;
+            font-size: 16px;
+            color: #ffffff;
+            letter-spacing: 0.3px;
+        }
+
+        .sidebar-menu {
+            flex: 1;
+            padding: 16px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow-y: auto;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 14px;
+            border-radius: 10px;
+            color: var(--sidebar-text);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            overflow: hidden;
+            user-select: none;
+        }
+        .nav-item:hover {
+            background: var(--sidebar-hover);
+            color: #ffffff;
+        }
+        .nav-item.active {
+            background: var(--sidebar-active-bg);
+            color: var(--sidebar-text-active);
+            box-shadow: 0 4px 12px rgba(79,70,229,0.35);
+        }
+        .nav-item .icon-svg {
+            width: 19px;
+            height: 19px;
+            flex-shrink: 0;
+        }
+        .app-layout.collapsed .nav-item span {
+            display: none;
+        }
+        .app-layout.collapsed .sidebar-brand span {
+            display: none;
+        }
+
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            font-size: 12px;
+            color: #64748b;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        /* --- Main Layout Wrapper --- */
+        .main-wrapper {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            display: flex;
+            flex-direction: column;
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            min-width: 0;
+        }
+        .app-layout.collapsed .main-wrapper {
+            margin-left: var(--sidebar-collapsed-width);
         }
 
         /* --- Header --- */
         .header {
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
-            padding: 0 32px;
-            height: 60px;
+            padding: 0 24px;
+            height: 64px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -67,17 +183,33 @@
             z-index: 100;
             box-shadow: var(--shadow-sm);
         }
-        .header h1 {
-            font-size: 17px;
-            font-weight: 700;
+        .header-left {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 16px;
+        }
+        .toggle-sidebar-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .toggle-sidebar-btn:hover {
+            background: var(--bg-input);
             color: var(--text-primary);
         }
-        .header h1 .icon-svg {
-            color: var(--accent);
+        .page-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
         }
+
         .header-right {
             display: flex;
             align-items: center;
@@ -107,6 +239,17 @@
         }
         .status-badge.running .status-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
         .status-badge.stopped .status-dot { background: var(--danger); }
+
+        /* --- SVG Icon Utilities --- */
+        .icon-svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        .icon-svg-sm {
+            width: 15px;
+            height: 15px;
+        }
 
         /* --- Buttons --- */
         .btn {
@@ -153,22 +296,27 @@
         }
         .btn-sm { padding: 5px 12px; font-size: 12px; }
 
-        /* --- Main --- */
-        .main {
-            max-width: 1100px;
+        /* --- Main Content Area --- */
+        .main-container {
+            padding: 24px;
+            max-width: 1400px;
+            width: 100%;
             margin: 0 auto;
-            padding: 24px 24px;
         }
 
-        /* --- Service Controls --- */
-        .service-controls {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+        .view-panel {
+            display: none;
+        }
+        .view-panel.active {
+            display: block;
+            animation: fadeIn 0.25s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        /* --- Card --- */
+        /* --- Cards & Grid --- */
         .card {
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -194,6 +342,14 @@
         }
         .card-header h2 .icon-svg { color: var(--accent); }
         .card-body { padding: 20px; }
+
+        /* --- Service Controls --- */
+        .service-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
 
         /* --- Table --- */
         .table-wrapper { overflow-x: auto; }
@@ -229,35 +385,10 @@
             padding: 40px 16px;
         }
 
-        /* --- Pagination --- */
-        .pagination {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 20px;
-            border-top: 1px solid var(--border);
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-        .pagination-controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .pagination select {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-primary);
-            padding: 4px 8px;
-            font-size: 13px;
-            font-family: inherit;
-        }
-
         /* --- Form --- */
         .form-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 14px;
             align-items: end;
         }
@@ -268,7 +399,7 @@
             margin-bottom: 6px;
             font-weight: 500;
         }
-        .form-group input, .form-group textarea {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
             padding: 10px 14px;
             background: var(--bg-input);
@@ -280,54 +411,12 @@
             outline: none;
             transition: all 0.2s;
         }
-        .form-group input:focus, .form-group textarea:focus {
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
         }
-        .form-group input::placeholder, .form-group textarea::placeholder {
-            color: var(--text-muted);
-        }
-        .form-group textarea {
-            resize: vertical;
-            min-height: 80px;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-        }
-        .form-hint {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 8px;
-            line-height: 1.5;
-        }
-        .form-hint code {
-            background: var(--bg-input);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 12px;
-        }
 
-        /* --- Toast --- */
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            padding: 12px 20px;
-            border-radius: 10px;
-            font-size: 14px;
-            z-index: 1000;
-            animation: slideIn 0.3s ease;
-            max-width: 400px;
-            box-shadow: var(--shadow-lg);
-        }
-        .toast.success { background: var(--success); color: #fff; }
-        .toast.error { background: var(--danger); color: #fff; }
-        .toast.info { background: var(--accent); color: #fff; }
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        /* --- IP Tag --- */
+        /* --- Toggle & Tags --- */
         .ip-tag {
             display: inline-block;
             padding: 2px 8px;
@@ -338,7 +427,6 @@
         .ip-tag.v4 { background: var(--success-light); color: var(--success); }
         .ip-tag.v6 { background: var(--accent-light); color: var(--accent); }
 
-        /* --- Protocol Toggle --- */
         .protocol-toggle {
             display: flex;
             gap: 0;
@@ -349,8 +437,8 @@
             width: fit-content;
         }
         .protocol-toggle .toggle-btn {
-            padding: 10px 28px;
-            font-size: 14px;
+            padding: 8px 24px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             border: none;
@@ -375,150 +463,7 @@
             color: var(--accent);
             box-shadow: inset 0 -2px 0 var(--accent);
         }
-        .protocol-toggle .toggle-btn:hover:not(.active-v4):not(.active-v6) {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-        }
-        .ipv6-notice {
-            background: var(--accent-light);
-            border: 1px solid rgba(79,70,229,0.15);
-            border-radius: 8px;
-            padding: 10px 14px;
-            font-size: 13px;
-            color: var(--accent);
-            margin-bottom: 14px;
-            display: none;
-        }
 
-        /* --- Nodes --- */
-        .nodes-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-            gap: 16px;
-        }
-        .node-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            box-shadow: var(--shadow);
-            position: relative;
-        }
-        .node-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 14px;
-        }
-        .node-type {
-            font-size: 15px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .node-type .icon-svg { color: var(--accent); }
-        .node-status {
-            font-size: 12px;
-            font-weight: 500;
-            padding: 3px 10px;
-            border-radius: 12px;
-        }
-        .node-status.running {
-            background: var(--success-light);
-            color: var(--success);
-        }
-        .node-status.stopped {
-            background: var(--danger-light);
-            color: var(--danger);
-        }
-        .node-info {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 6px 12px;
-            font-size: 13px;
-            margin-bottom: 14px;
-        }
-        .node-info .label {
-            color: var(--text-secondary);
-            font-weight: 500;
-            white-space: nowrap;
-        }
-        .node-info .value {
-            color: var(--text-primary);
-            word-break: break-all;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 12px;
-        }
-        .node-link {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 10px 12px;
-            font-size: 11px;
-            font-family: 'Consolas', 'Monaco', monospace;
-            word-break: break-all;
-            line-height: 1.5;
-            color: var(--text-secondary);
-            position: relative;
-            cursor: pointer;
-            transition: border-color 0.2s;
-        }
-        .node-link:hover {
-            border-color: var(--accent);
-        }
-        .node-link .copy-hint {
-            position: absolute;
-            top: 6px;
-            right: 8px;
-            font-size: 11px;
-            color: var(--accent);
-            font-family: inherit;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-        .node-link:hover .copy-hint { opacity: 1; }
-        .nodes-empty {
-            text-align: center;
-            color: var(--text-muted);
-            padding: 30px;
-            font-size: 14px;
-        }
-        .ipv6-notice.show { display: block; }
-
-        /* --- Traffic Progress Bar --- */
-        .traffic-cell { min-width: 160px; }
-        .traffic-bar {
-            width: 100%;
-            height: 6px;
-            background: var(--bg-input);
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-        .traffic-bar-fill {
-            height: 100%;
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-        .traffic-bar-fill.green { background: var(--success); }
-        .traffic-bar-fill.yellow { background: var(--warning); }
-        .traffic-bar-fill.red { background: var(--danger); }
-        .traffic-text {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-        .traffic-text.exceeded {
-            color: var(--danger);
-            font-weight: 600;
-        }
-        .rule-suspended {
-            opacity: 0.5;
-        }
-        .rule-suspended td {
-            text-decoration: line-through;
-            text-decoration-color: var(--danger);
-        }
         .status-tag {
             display: inline-block;
             padding: 2px 8px;
@@ -536,10 +481,7 @@
             border: 1px solid rgba(220,38,38,0.15);
             animation: pulse-tag 2s ease-in-out infinite;
         }
-        @keyframes pulse-tag {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
+
         .gfw-banner {
             background: linear-gradient(135deg, #dc2626, #b91c1c);
             color: #fff;
@@ -548,81 +490,39 @@
             margin-bottom: 20px;
             font-size: 14px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             box-shadow: 0 4px 12px rgba(220,38,38,0.3);
             animation: pulse-gfw 2s ease-in-out infinite;
         }
-        @keyframes pulse-gfw {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.85; }
-        }
 
-        /* --- Node Overview Table --- */
-        .overview-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .overview-table thead th {
-            text-align: left;
-            padding: 10px 16px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 1px solid var(--border);
-            background: var(--bg-input);
-            white-space: nowrap;
-        }
-        .overview-table tbody td {
-            padding: 12px 16px;
+        /* --- Toast --- */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 20px;
+            border-radius: 10px;
             font-size: 14px;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+            max-width: 400px;
+            box-shadow: var(--shadow-lg);
         }
-        .overview-table tbody tr { transition: background 0.15s; cursor: pointer; }
-        .overview-table tbody tr:hover { background: var(--accent-light); }
-        .overview-table tbody tr:last-child td { border-bottom: none; }
-        .online-dot {
-            display: inline-block;
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            margin-right: 6px;
-        }
-        .online-dot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
-        .online-dot.off { background: var(--danger); }
-        .node-detail-row td {
-            padding: 0 !important;
-            border-bottom: 1px solid var(--border);
-        }
-        .node-detail-content {
-            padding: 12px 24px;
-            background: var(--bg-input);
-        }
-        .node-detail-content table {
-            width: 100%;
-            font-size: 13px;
-        }
-        .node-detail-content table th {
-            font-weight: 600;
-            color: var(--text-secondary);
-            padding: 6px 12px;
-            text-align: left;
-        }
-        .node-detail-content table td {
-            padding: 6px 12px;
-        }
-        .overview-empty {
-            text-align: center;
-            color: var(--text-muted);
-            padding: 30px;
-            font-size: 14px;
+        .toast.success { background: var(--success); color: #fff; }
+        .toast.error { background: var(--danger); color: #fff; }
+        .toast.info { background: var(--accent); color: #fff; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
 
         /* --- Modal --- */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.4);
             backdrop-filter: blur(4px);
             z-index: 500;
             display: none;
@@ -635,7 +535,7 @@
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 28px;
-            width: 420px;
+            width: 440px;
             max-width: 90vw;
             box-shadow: var(--shadow-lg);
         }
@@ -656,383 +556,456 @@
             justify-content: flex-end;
         }
 
-        /* --- Responsive --- */
+        /* --- Node Cards Grid --- */
+        .nodes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
         @media (max-width: 768px) {
-            .header { padding: 0 16px; }
-            .main { padding: 16px; }
+            .sidebar { width: var(--sidebar-collapsed-width); }
+            .sidebar-brand span, .nav-item span { display: none; }
+            .main-wrapper { margin-left: var(--sidebar-collapsed-width); }
             .form-grid { grid-template-columns: 1fr; }
-            .service-controls { gap: 6px; }
-            .btn { padding: 7px 12px; font-size: 12px; }
-            .protocol-toggle .toggle-btn { padding: 8px 16px; font-size: 13px; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Header -->
-    <div class="header">
-        <h1>
-            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
-                <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
-                <line x1="4" y1="4" x2="9" y2="9"></line>
-            </svg>
-            <span data-i18n="header.title">nftables 转发管理</span>
-        </h1>
-        <div class="header-right">
-            <div class="status-badge stopped" id="statusBadge">
-                <div class="status-dot"></div>
-                <span id="statusText">检测中...</span>
-            </div>
-            <button class="btn btn-ghost btn-sm" id="langToggleBtn" title="English / 中文" style="font-size:13px;font-weight:600;letter-spacing:0.5px">EN</button>
-            <button class="btn btn-ghost btn-sm" id="changePasswordBtn" title="修改密码">
-                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                </svg>
-            </button>
-            <button class="btn btn-outline btn-sm" id="logoutBtn">
-                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                <span data-i18n="header.logout">退出</span>
-            </button>
-        </div>
-    </div>
-
-    <!-- Main Content -->
-    <div class="main">
-
-        <!-- Service Controls -->
-        <div class="service-controls">
-            <button class="btn btn-success" id="startBtn">
-                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                <span data-i18n="svc.start">启动</span>
-            </button>
-            <button class="btn btn-danger" id="stopBtn">
-                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>
-                <span data-i18n="svc.stop">停止</span>
-            </button>
-            <button class="btn btn-warning" id="restartBtn">
-                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                </svg>
-                <span data-i18n="svc.restart">重启</span>
-            </button>
-        </div>
-
-        <!-- GFW 封锁警告横幅（后端检测到被墙时通过 JS 显示） -->
-        <div class="gfw-banner" id="gfwBanner" hidden>
-            ⚠️ 检测到服务器 IP 可能被墙
-        </div>
-
-        <!-- 管理监控节点（始终可见，用户可通过 UI 添加/删除远程被控节点） -->
-        <div class="card" style="margin-bottom:20px" id="nodeManageCard">
-            <div class="card-header">
-                <h2>
-                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                        <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
+    <div class="app-layout" id="appLayout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="logo-icon">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
+                        <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
+                        <line x1="4" y1="4" x2="9" y2="9"></line>
                     </svg>
-                    <span data-i18n="nodeManage.title">管理监控节点</span>
-                </h2>
-            </div>
-            <div class="card-body">
-                <div id="nodeManageList" style="margin-bottom:12px"></div>
-                <div class="form-grid" style="grid-template-columns: repeat(3, 1fr) auto; gap:10px; align-items:end">
-                    <div class="form-group">
-                        <label>节点名称</label>
-                        <input type="text" id="nodeManageName" placeholder="如: 东京中转">
-                    </div>
-                    <div class="form-group">
-                        <label>节点地址</label>
-                        <input type="text" id="nodeManageURL" placeholder="如: https://1.2.3.4:3456">
-                    </div>
-                    <div class="form-group">
-                        <label>Metrics Token</label>
-                        <input type="text" id="nodeManageToken" placeholder="被控端的 Token">
-                    </div>
-                    <div class="form-group">
-                        <button class="btn btn-primary btn-sm" id="addNodeBtn" style="margin-top:20px">添加节点</button>
-                    </div>
                 </div>
+                <span>Forward Pro</span>
             </div>
-        </div>
 
-        <!-- 节点总览（主控大盘，有被控节点数据时自动显示） -->
-        <div class="card" style="margin-bottom:20px" id="overviewCard" hidden>
-            <div class="card-header">
-                <h2>
+            <nav class="sidebar-menu">
+                <div class="nav-item active" data-view="view-dashboard">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span data-i18n="nav.dashboard">控制台概览</span>
+                </div>
+                <div class="nav-item" data-view="view-nftables">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span data-i18n="nav.nftables">nftables 转发</span>
+                </div>
+                <div class="nav-item" data-view="view-realm">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                    </svg>
+                    <span data-i18n="nav.realm">Realm 转发</span>
+                </div>
+                <div class="nav-item" data-view="view-nodes">
                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
                         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                     </svg>
-                    <span data-i18n="overview.title">节点总览</span>
-                </h2>
-                <button class="btn btn-outline btn-sm" id="refreshOverviewBtn">
-                    <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                    </svg>
-                    <span data-i18n="btn.refresh">刷新</span>
-                </button>
-            </div>
-            <div class="table-wrapper">
-                <table class="overview-table">
-                    <thead>
-                        <tr>
-                            <th data-i18n="overview.node">节点名</th>
-                            <th data-i18n="overview.online">在线</th>
-                            <th data-i18n="overview.rules">规则数</th>
-                            <th data-i18n="overview.used">总已用</th>
-                            <th data-i18n="overview.quota">总配额</th>
-                            <th data-i18n="overview.lastUpdate">最后更新</th>
-                        </tr>
-                    </thead>
-                    <tbody id="overviewBody">
-                        <tr><td colspan="6" class="overview-empty">加载中...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Deployed Nodes -->
-        <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-                <h2>
-                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                        <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
-                    </svg>
-                    <span data-i18n="nodes.title">已部署节点</span>
-                </h2>
-                <button class="btn btn-outline btn-sm" id="refreshNodesBtn">
-                    <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                    </svg>
-                    刷新
-                </button>
-            </div>
-            <div class="card-body">
-                <div id="nodesContainer" class="nodes-grid">
-                    <div class="nodes-empty">加载中...</div>
+                    <span data-i18n="nav.nodes">节点管理</span>
                 </div>
-            </div>
-        </div>
-
-        <!-- Rules Table -->
-        <div class="card">
-            <div class="card-header">
-                <h2>
+                <div class="nav-item" data-view="view-tg">
                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line>
-                        <line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        <line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                     </svg>
-                    <span data-i18n="rules.title">转发规则列表</span>
-                </h2>
-                <span style="font-size:13px;color:var(--text-secondary)" id="ruleCount">共 0 条</span>
-            </div>
-            <div class="table-wrapper">
-                <table id="rulesTable">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th data-i18n="rules.localPort">本机端口</th>
-                            <th data-i18n="rules.ipType">IP类型</th>
-                            <th data-i18n="rules.targetAddr">目标地址</th>
-                            <th data-i18n="rules.targetPort">目标端口</th>
-                            <th data-i18n="rules.protocol">协议</th>
-                            <th data-i18n="rules.traffic">流量 / 配额</th>
-                            <th data-i18n="rules.status">状态</th>
-                            <th data-i18n="rules.note">备注</th>
-                            <th data-i18n="rules.actions">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="rulesBody">
-                        <tr class="empty-row"><td colspan="10">加载中...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="pagination">
-                <div class="pagination-controls">
-                    <span>每页</span>
-                    <select id="pageSizeSelect">
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                    <span>条</span>
+                    <span data-i18n="nav.tg">TG 推送设置</span>
                 </div>
-                <div class="pagination-controls">
-                    <button class="btn btn-outline btn-sm" id="prevPage" disabled data-i18n="page.prev">上一页</button>
-                    <span id="pageInfo">第 1 / 1 页</span>
-                    <button class="btn btn-outline btn-sm" id="nextPage" disabled data-i18n="page.next">下一页</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Add Single Rule -->
-        <div class="card">
-            <div class="card-header">
-                <h2>
+                <div class="nav-item" data-view="view-settings">
                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                     </svg>
-                    <span data-i18n="add.title">添加转发规则</span>
-                </h2>
+                    <span data-i18n="nav.settings">系统设置</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <span>v1.5.0 • Powered by Go</span>
             </div>
-            <div class="card-body">
-                <!-- IPv4/IPv6 Toggle -->
-                <div class="protocol-toggle" id="protocolToggle">
-                    <button class="toggle-btn active-v4" data-proto="ipv4" id="toggleV4">
-                        <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                        IPv4
+        </aside>
+
+        <!-- Main Wrapper -->
+        <div class="main-wrapper">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <button class="toggle-sidebar-btn" id="toggleSidebarBtn" title="折叠/展开侧边栏">
+                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line>
+                        </svg>
                     </button>
-                    <button class="toggle-btn" data-proto="ipv6" id="toggleV6">
-                        <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                        IPv6
+                    <h1 class="page-title" id="pageTitle">控制台概览</h1>
+                </div>
+
+                <div class="header-right">
+                    <div class="status-badge stopped" id="statusBadge">
+                        <div class="status-dot"></div>
+                        <span id="statusText">检测中...</span>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" id="langToggleBtn" title="English / 中文" style="font-size:13px;font-weight:600;letter-spacing:0.5px">EN</button>
+                    <button class="btn btn-outline btn-sm" id="logoutBtn">
+                        <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                        <span data-i18n="header.logout">退出</span>
                     </button>
                 </div>
+            </header>
 
-                <div class="ipv6-notice" id="ipv6Notice">
-                    💡 IPv6 地址请使用方括号包裹，例如：<code>[2001:db8::1]</code>  ·  nftables 将使用 <code>inet</code> 表进行双栈转发
+            <!-- Content Area -->
+            <div class="main-container">
+
+                <!-- GFW Banner -->
+                <div class="gfw-banner" id="gfwBanner" hidden>
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span>警告：检测到服务器 IP 可能在境内不可达（被墙告警）</span>
                 </div>
 
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label data-i18n="add.localPort">本机端口</label>
-                        <input type="number" id="localPort" placeholder="如: 2222" min="1" max="65535">
-                    </div>
-                    <div class="form-group">
-                        <label id="addrLabel">目标 IPv4 地址</label>
-                        <input type="text" id="remoteAddr" placeholder="如: 6.6.6.6">
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="add.targetPort">目标端口</label>
-                        <input type="number" id="remotePort" placeholder="如: 6666" min="1" max="65535">
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="add.note">备注（可选）</label>
-                        <input type="text" id="ruleNote" placeholder="如: 东京节点">
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="add.quota">月配额 GB（可选）</label>
-                        <input type="number" id="ruleQuota" placeholder="0 = 不限额" min="0" step="1">
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="add.resetDay">重置日（可选）</label>
-                        <input type="number" id="ruleResetDay" placeholder="每月几号自动清零 (1-31，0=不重置)" min="0" max="31" step="1">
-                    </div>
-                    <div class="form-group">
-                        <button class="btn btn-primary" id="addRuleBtn" style="margin-top:20px">
-                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            <span data-i18n="add.submit">添加规则</span>
+                <!-- VIEW 1: Dashboard -->
+                <section class="view-panel active" id="view-dashboard">
+                    <div class="service-controls">
+                        <button class="btn btn-success" id="startBtn">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            <span data-i18n="svc.start">启动服务</span>
+                        </button>
+                        <button class="btn btn-danger" id="stopBtn">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>
+                            <span data-i18n="svc.stop">停止服务</span>
+                        </button>
+                        <button class="btn btn-warning" id="restartBtn">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            <span data-i18n="svc.restart">重启服务</span>
                         </button>
                     </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Batch Add Rules -->
-        <div class="card">
-            <div class="card-header">
-                <h2>
-                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>
-                    </svg>
-                    <span data-i18n="batch.title">批量添加转发规则</span>
-                </h2>
-            </div>
-            <div class="card-body">
-                <div class="form-group">
-                    <label>每行一条规则</label>
-                    <textarea id="batchRules" rows="5" placeholder="IPv4: 中转端口:落地IP:目标端口&#10;IPv6: 中转端口:[IPv6地址]:目标端口&#10;&#10;示例:&#10;2222:6.6.6.6:6666&#10;3333:[2001:db8::1]:7777"></textarea>
-                </div>
-                <div class="form-hint">
-                    IPv4 格式：<code>中转端口:落地IP:目标端口</code> &nbsp;|&nbsp;
-                    IPv6 格式：<code>中转端口:[IPv6地址]:目标端口</code>
-                </div>
-                <button class="btn btn-primary" id="batchAddBtn" style="margin-top:14px">
-                    <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    <span data-i18n="batch.submit">批量添加</span>
-                </button>
+                    <!-- 节点总览 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
+                                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                </svg>
+                                <span data-i18n="overview.title">节点总览与流量监控</span>
+                            </h2>
+                            <button class="btn btn-outline btn-sm" id="refreshOverviewBtn">
+                                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                                <span>刷新</span>
+                            </button>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="overview-table">
+                                <thead>
+                                    <tr>
+                                        <th>节点名</th>
+                                        <th>在线</th>
+                                        <th>规则数</th>
+                                        <th>总已用</th>
+                                        <th>总配额</th>
+                                        <th>最后更新</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="overviewBody">
+                                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">本地节点运行正常</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 2: nftables Forward -->
+                <section class="view-panel" id="view-nftables">
+                    <!-- Rules Table Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                                </svg>
+                                <span>nftables 端口转发规则</span>
+                            </h2>
+                            <span style="font-size:13px;color:var(--text-secondary)" id="ruleCount">共 0 条</span>
+                        </div>
+                        <div class="table-wrapper">
+                            <table id="rulesTable">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>本机端口</th>
+                                        <th>IP类型</th>
+                                        <th>目标地址</th>
+                                        <th>目标端口</th>
+                                        <th>协议</th>
+                                        <th>流量 / 配额</th>
+                                        <th>状态</th>
+                                        <th>备注</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rulesBody">
+                                    <tr class="empty-row"><td colspan="10">加载规则中...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination">
+                            <div>每页 <select id="pageSizeSelect"><option value="10">10</option><option value="20">20</option><option value="50">50</option></select> 条</div>
+                            <div class="pagination-controls">
+                                <button class="btn btn-outline btn-sm" id="prevPageBtn">上一页</button>
+                                <span id="pageInfo">第 1 / 1 页</span>
+                                <button class="btn btn-outline btn-sm" id="nextPageBtn">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add Rule Form Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
+                                </svg>
+                                <span>添加 nftables 转发规则</span>
+                            </h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="protocol-toggle">
+                                <button class="toggle-btn active-v4" id="btnIPv4" type="button">IPv4 转发</button>
+                                <button class="toggle-btn" id="btnIPv6" type="button">IPv6 转发</button>
+                            </div>
+                            <form id="addRuleForm">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label>本机端口</label>
+                                        <input type="number" id="localPort" placeholder="如: 2222" required min="1" max="65535">
+                                    </div>
+                                    <div class="form-group">
+                                        <label id="remoteAddrLabel">目标 IPv4 地址 / 域名</label>
+                                        <input type="text" id="remoteAddr" placeholder="如: 6.6.6.6 或 example.com" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>目标端口</label>
+                                        <input type="number" id="remotePort" placeholder="如: 6666" required min="1" max="65535">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>备注 (可选)</label>
+                                        <input type="text" id="note" placeholder="如: 东京节点">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>月配额 GB (0 = 不限)</label>
+                                        <input type="number" id="quotaGB" placeholder="0" min="0" step="0.1" value="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="submit" class="btn btn-primary" style="width:100%">添加规则</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 3: Realm Forward -->
+                <section class="view-panel" id="view-realm">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                                </svg>
+                                <span>Realm 协议转发规则</span>
+                            </h2>
+                            <span style="font-size:13px;color:var(--text-secondary)" id="realmRuleCount">共 0 条</span>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>监听端口</th>
+                                        <th>传输协议</th>
+                                        <th>落地目标</th>
+                                        <th>落地端口</th>
+                                        <th>备注</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="realmRulesBody">
+                                    <tr class="empty-row"><td colspan="8">Realm 服务未启动或暂无规则</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Add Realm Form -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
+                                </svg>
+                                <span>添加 Realm 转发规则</span>
+                            </h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="addRealmRuleForm">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label>监听端口</label>
+                                        <input type="number" id="realmListenPort" placeholder="如: 3000" required min="1" max="65535">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>传输模式</label>
+                                        <select id="realmNetwork">
+                                            <option value="tcp+udp">TCP + UDP</option>
+                                            <option value="tcp">仅 TCP</option>
+                                            <option value="udp">仅 UDP</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>落地地址 / 域名</label>
+                                        <input type="text" id="realmRemoteAddr" placeholder="如: 8.8.8.8" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>落地端口</label>
+                                        <input type="number" id="realmRemotePort" placeholder="如: 443" required min="1" max="65535">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>备注</label>
+                                        <input type="text" id="realmNote" placeholder="如: HK Realm">
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="submit" class="btn btn-primary" style="width:100%">保存并应用 Realm</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 4: Nodes Management -->
+                <section class="view-panel" id="view-nodes">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                    <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
+                                </svg>
+                                <span>被控节点与代理部署</span>
+                            </h2>
+                            <button class="btn btn-outline btn-sm" id="refreshNodesBtn">刷新状态</button>
+                        </div>
+                        <div class="card-body">
+                            <div id="nodesContainer" class="nodes-grid">
+                                <div class="nodes-empty">加载被控节点中...</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 5: Telegram Bot Settings -->
+                <section class="view-panel" id="view-tg">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                                <span>Telegram 机器人流量与告警推送设置</span>
+                            </h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="tgConfigForm">
+                                <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+                                    <div class="form-group">
+                                        <label>Bot Token</label>
+                                        <input type="text" id="tgBotToken" placeholder="格式如 123456789:AAFg..." required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Chat ID / Channel ID</label>
+                                        <input type="text" id="tgChatID" placeholder="格式如 987654321" required>
+                                    </div>
+                                </div>
+                                <div style="margin-top:20px;display:flex;flex-direction:column;gap:12px">
+                                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+                                        <input type="checkbox" id="tgDailyReport" checked>
+                                        <span>每日定时推送流量报告 (08:00)</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+                                        <input type="checkbox" id="tgAlertQuota" checked>
+                                        <span>规则超额 / 封停告警推送</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+                                        <input type="checkbox" id="tgAlertGFW" checked>
+                                        <span>GFW 被墙状态变更告警</span>
+                                    </label>
+                                </div>
+                                <div style="margin-top:24px;display:flex;gap:12px">
+                                    <button type="submit" class="btn btn-primary">保存 TG 配置</button>
+                                    <button type="button" class="btn btn-outline" id="testTgBtn">发送测试消息</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 6: Settings -->
+                <section class="view-panel" id="view-settings">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                </svg>
+                                <span>安全与修改密码</span>
+                            </h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="changePasswordForm">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label>当前密码</label>
+                                        <input type="password" id="oldPassword" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>新密码</label>
+                                        <input type="password" id="newPassword" required minlength="6">
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="submit" class="btn btn-primary">提交修改密码</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
             </div>
         </div>
     </div>
 
-    <!-- 编辑规则模态框 -->
-    <div class="modal-overlay" id="editModal">
-        <div class="modal-card">
-            <h3>
-                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-                <span data-i18n="edit.title">编辑转发规则</span>
-            </h3>
-            <input type="hidden" id="editRuleId">
-            <div class="form-group" style="margin-bottom:14px">
-                <label>本机端口（中转端口）</label>
-                <input type="number" id="editLocalPort" placeholder="1-65535" min="1" max="65535">
-            </div>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>目标地址</label>
-                <input type="text" id="editRemoteAddr" placeholder="IPv4/IPv6/域名">
-            </div>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>目标端口</label>
-                <input type="number" id="editRemotePort" placeholder="1-65535" min="1" max="65535">
-            </div>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>备注（可选）</label>
-                <input type="text" id="editRuleNote" placeholder="备注信息">
-            </div>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>月配额 GB（0 = 不限额）</label>
-                <input type="number" id="editQuotaGB" placeholder="如: 100" min="0" step="1">
-            </div>
-            <div class="form-group" style="margin-bottom:0">
-                <label>重置日（0 = 不自动重置）</label>
-                <input type="number" id="editResetDay" placeholder="每月几号 (1-31)" min="0" max="31" step="1">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-outline" id="editCancelBtn" data-i18n="btn.cancel">取消</button>
-                <button class="btn btn-primary" id="editSaveBtn" data-i18n="btn.save">保存</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 修改密码模态框 -->
-    <div class="modal-overlay" id="passwordModal">
-        <div class="modal-card">
-            <h3>
-                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-                <span data-i18n="pwd.title">修改密码</span>
-            </h3>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>当前密码</label>
-                <input type="password" id="oldPassword" placeholder="请输入当前密码">
-            </div>
-            <div class="form-group" style="margin-bottom:14px">
-                <label>新密码</label>
-                <input type="password" id="newPassword" placeholder="请输入新密码">
-            </div>
-            <div class="form-group" style="margin-bottom:0">
-                <label>确认新密码</label>
-                <input type="password" id="confirmPassword" placeholder="再次输入新密码">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-outline" id="pwdCancelBtn" data-i18n="btn.cancel">取消</button>
-                <button class="btn btn-primary" id="pwdSaveBtn" data-i18n="pwd.confirm">确认修改</button>
-            </div>
-        </div>
-    </div>
+    <!-- Modals & Toasts Container -->
+    <div id="toastContainer"></div>
 
     <script src="/static/app.js"></script>
 </body>
