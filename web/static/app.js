@@ -255,19 +255,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadRules();
 
-    // TG 配置假测试/保存
+    // TG 配置绑定与保存
     const tgConfigForm = document.getElementById('tgConfigForm');
     const testTgBtn = document.getElementById('testTgBtn');
 
+    async function loadTgConfig() {
+        const cfg = await apiRequest('/api/tg/config');
+        if (!cfg) return;
+        if (document.getElementById('tgBotToken')) document.getElementById('tgBotToken').value = cfg.bot_token || '';
+        if (document.getElementById('tgChatID')) document.getElementById('tgChatID').value = cfg.chat_id || '';
+        if (document.getElementById('tgReportTime')) document.getElementById('tgReportTime').value = cfg.report_time || '08:00';
+        if (document.getElementById('tgDailyReport')) document.getElementById('tgDailyReport').checked = cfg.daily_report !== false;
+        if (document.getElementById('tgAlertQuota')) document.getElementById('tgAlertQuota').checked = cfg.alert_quota !== false;
+        if (document.getElementById('tgAlertGFW')) document.getElementById('tgAlertGFW').checked = cfg.alert_gfw !== false;
+    }
+    loadTgConfig();
+
     if (tgConfigForm) {
-        tgConfigForm.onsubmit = (e) => {
+        tgConfigForm.onsubmit = async (e) => {
             e.preventDefault();
-            showToast(t('toast.tgSaved'), 'success');
+            const bot_token = document.getElementById('tgBotToken').value;
+            const chat_id = document.getElementById('tgChatID').value;
+            const report_time = document.getElementById('tgReportTime').value || '08:00';
+            const daily_report = document.getElementById('tgDailyReport').checked;
+            const alert_quota = document.getElementById('tgAlertQuota').checked;
+            const alert_gfw = document.getElementById('tgAlertGFW').checked;
+
+            const res = await apiRequest('/api/tg/config', {
+                method: 'POST',
+                body: JSON.stringify({ enabled: true, bot_token, chat_id, report_time, daily_report, alert_quota, alert_gfw })
+            });
+
+            if (res && res.message) {
+                showToast(t('toast.tgSaved'), 'success');
+            }
         };
     }
     if (testTgBtn) {
-        testTgBtn.onclick = () => {
-            showToast(t('toast.tgTestSent'), 'info');
+        testTgBtn.onclick = async () => {
+            const res = await apiRequest('/api/tg/test', { method: 'POST' });
+            if (res && res.message) {
+                showToast(t('toast.tgTestSent'), 'info');
+            }
         };
     }
 

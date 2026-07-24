@@ -78,6 +78,7 @@ type TelegramConfig struct {
 	BotToken    string `toml:"bot_token" json:"bot_token"`
 	ChatID      string `toml:"chat_id" json:"chat_id"`
 	DailyReport bool   `toml:"daily_report" json:"daily_report"`
+	ReportTime  string `toml:"report_time" json:"report_time"` // 自定义推送时间，如 "08:00"
 	AlertQuota  bool   `toml:"alert_quota" json:"alert_quota"`
 	AlertGFW    bool   `toml:"alert_gfw" json:"alert_gfw"`
 }
@@ -1926,7 +1927,41 @@ func main() {
 		})
 	}
 
+	// --- Telegram 定时流量报告守护协程 ---
+	go func() {
+		lastPushedDate := ""
+		for {
+			time.Sleep(30 * time.Second)
+			if !panelConfig.Telegram.Enabled || !panelConfig.Telegram.DailyReport || panelConfig.Telegram.BotToken == "" || panelConfig.Telegram.ChatID == "" {
+				continue
+			}
+			targetTime := panelConfig.Telegram.ReportTime
+			if targetTime == "" {
+				targetTime = "08:00"
+			}
+			now := time.Now()
+			currentHM := now.Format("15:04")
+			currentDate := now.Format("2006-01-02")
 
+			if currentHM == targetTime && lastPushedDate != currentDate {
+				lastPushedDate = currentDate
+				mu.Lock()
+				var totalUsed uint64
+				activeCount := 0
+				for _, r := range rules {
+					totalUsed += r.UsedBytes
+					if r.Enabled {
+						activeCount++
+					}
+				}
+				mu.Unlock()
+
+				usedGB := float64(totalUsed) / (1024 * 1024 * 1024)
+				msg := fmt.Sprintf("📊 *Forward Pro 每日流量报告*\n\n📅 日期: %s\n⚡ 活跃规则数: %d 条\n📈 总已用流量: %.2f GB\n\n系统运行正常！", currentDate, activeCount, usedGB)
+				sendTelegramNotification(msg)
+			}
+		}
+	}()
 
 	// --- 启动服务器 ---
 	port := panelConfig.Server.Port
