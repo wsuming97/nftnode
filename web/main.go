@@ -619,6 +619,26 @@ func noteOrDash(note string) string {
 	return note
 }
 
+// maskBotToken 生成用于展示的掩码 Token（GET 下发与 POST 还原必须共用同一实现，
+// 否则前端把掩码原样提交回来时会覆盖掉真实 Token）
+func maskBotToken(token string) string {
+	if len(token) <= 6 {
+		return token
+	}
+	return token[:6] + ":****"
+}
+
+// resolveBotToken 决定最终写入的 Token：
+// 前端把 GET 下发的掩码原样提交回来时视为「未修改」，保留 current；
+// 空值同样视为「未修改」——loadTgConfig 拉取失败会静默留空，按字面写入会误清空 Token。
+// 只有提交了一个既非空、又不等于当前掩码的值，才认为用户真的换了 Token。
+func resolveBotToken(incoming, current string) string {
+	if incoming == "" || incoming == maskBotToken(current) {
+		return current
+	}
+	return incoming
+}
+
 // tgConfigSnapshot 在 tgMu 保护下返回 Telegram 配置副本，供各协程无竞争读取
 func tgConfigSnapshot() TelegramConfig {
 	tgMu.RLock()
@@ -2087,10 +2107,8 @@ func main() {
 		// --- Telegram API ---
 		api.GET("/api/tg/config", func(c *gin.Context) {
 			cfg := tgConfigSnapshot()
-			// 掩码 bot_token：只保留前 6 位 + 冒号前部分，避免明文泄露
-			if len(cfg.BotToken) > 6 {
-				cfg.BotToken = cfg.BotToken[:6] + ":****"
-			}
+			// 掩码 bot_token，避免明文泄露；提交时由 POST 侧还原
+			cfg.BotToken = maskBotToken(cfg.BotToken)
 			c.JSON(200, cfg)
 		})
 
@@ -2109,6 +2127,8 @@ func main() {
 			}
 
 			tgMu.Lock()
+			// GET 下发的是掩码，前端原样提交回来时必须还原，否则真实 Token 会被星号覆盖
+			cfg.BotToken = resolveBotToken(cfg.BotToken, panelConfig.Telegram.BotToken)
 			panelConfig.Telegram = cfg
 			tgMu.Unlock()
 
