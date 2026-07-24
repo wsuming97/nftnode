@@ -16,6 +16,19 @@ key_file = "./certificate/private.key"
 config_path = "/etc/nftables.conf"
 rules_path = "/root/.nft-forward/rules.json"
 
+[realm]
+config_path = "/etc/realm/config.toml"
+rules_path = "/root/.nft-forward/realm_rules.json"
+
+[telegram]
+enabled = false
+bot_token = ""
+chat_id = ""
+daily_report = false
+report_time = "08:00"    # 每日报告推送时间（HH:MM），用户可自定义
+alert_quota = false       # 配额用尽时推送告警
+alert_gfw = false         # GFW 封锁时推送告警
+
 [session]
 # secret = ""  # 首次运行时会自动生成随机密钥
 

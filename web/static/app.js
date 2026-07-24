@@ -1063,6 +1063,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (viewId === 'realm') fetchRealmRules();
             // 切换到 Telegram 时自动加载配置
             if (viewId === 'telegram') loadTgConfig();
+            // 切换到节点管理时加载节点数据
+            if (viewId === 'nodes') {
+                fetchNodes();
+                fetchOverview();
+                fetchNodeManage();
+            }
         });
     });
 

@@ -133,6 +133,8 @@ var (
 	panelConfig PanelConfig
 	configPath  = "./config.toml"
 
+	// tgMu 保护 panelConfig.Telegram：告警由轮询协程触发，配置由 HTTP handler 写入
+	tgMu sync.RWMutex
 
 	nodesMu    sync.RWMutex
 	nodesCache []NodeSnapshot
@@ -192,6 +194,17 @@ func validateAddress(addr string) bool {
 func sanitizeForNft(s string) string {
 	safe := regexp.MustCompile(`[^a-zA-Z0-9\.\:\[\]\-\_]`)
 	return safe.ReplaceAllString(s, "")
+}
+
+// tomlEscape 转义 TOML 字符串值中的特殊字符（双引号、反斜杠、换行），
+// 防止节点名/URL/token 等用户输入包含 " 时写坏配置文件
+func tomlEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	return s
 }
 
 // resolveDomainIP 把域名解析成单个稳定 IP，供内核 nftables DNAT 使用。
@@ -258,6 +271,15 @@ func LoadPanelConfig() error {
 	if panelConfig.Nftables.RulesPath == "" {
 		panelConfig.Nftables.RulesPath = "/root/.nft-forward/rules.json"
 	}
+	if panelConfig.Realm.ConfigPath == "" {
+		panelConfig.Realm.ConfigPath = "/etc/realm/config.toml"
+	}
+	if panelConfig.Realm.RulesPath == "" {
+		panelConfig.Realm.RulesPath = "/root/.nft-forward/realm-rules.json"
+	}
+	if panelConfig.Telegram.ReportTime == "" {
+		panelConfig.Telegram.ReportTime = "08:00"
+	}
 
 	// 自动生成 Session Secret
 	if panelConfig.Session.Secret == "" {
@@ -322,10 +344,10 @@ func savePanelConfig() error {
 
 	buf.WriteString("[auth]\n")
 	if panelConfig.Auth.Password != "" {
-		buf.WriteString(fmt.Sprintf("password = \"%s\"\n", panelConfig.Auth.Password))
+		buf.WriteString(fmt.Sprintf("password = \"%s\"\n", tomlEscape(panelConfig.Auth.Password)))
 	}
 	if panelConfig.Auth.PasswordHash != "" {
-		buf.WriteString(fmt.Sprintf("password_hash = \"%s\"\n", panelConfig.Auth.PasswordHash))
+		buf.WriteString(fmt.Sprintf("password_hash = \"%s\"\n", tomlEscape(panelConfig.Auth.PasswordHash)))
 	}
 	buf.WriteString("\n")
 
@@ -334,25 +356,39 @@ func savePanelConfig() error {
 
 	buf.WriteString("[https]\n")
 	buf.WriteString(fmt.Sprintf("enabled = %t\n", panelConfig.HTTPS.Enabled))
-	buf.WriteString(fmt.Sprintf("cert_file = \"%s\"\n", panelConfig.HTTPS.CertFile))
-	buf.WriteString(fmt.Sprintf("key_file = \"%s\"\n\n", panelConfig.HTTPS.KeyFile))
+	buf.WriteString(fmt.Sprintf("cert_file = \"%s\"\n", tomlEscape(panelConfig.HTTPS.CertFile)))
+	buf.WriteString(fmt.Sprintf("key_file = \"%s\"\n\n", tomlEscape(panelConfig.HTTPS.KeyFile)))
 
 	buf.WriteString("[nftables]\n")
-	buf.WriteString(fmt.Sprintf("config_path = \"%s\"\n", panelConfig.Nftables.ConfigPath))
-	buf.WriteString(fmt.Sprintf("rules_path = \"%s\"\n\n", panelConfig.Nftables.RulesPath))
+	buf.WriteString(fmt.Sprintf("config_path = \"%s\"\n", tomlEscape(panelConfig.Nftables.ConfigPath)))
+	buf.WriteString(fmt.Sprintf("rules_path = \"%s\"\n\n", tomlEscape(panelConfig.Nftables.RulesPath)))
+
+	buf.WriteString("[realm]\n")
+	buf.WriteString(fmt.Sprintf("config_path = \"%s\"\n", tomlEscape(panelConfig.Realm.ConfigPath)))
+	buf.WriteString(fmt.Sprintf("rules_path = \"%s\"\n\n", tomlEscape(panelConfig.Realm.RulesPath)))
+
+	tg := tgConfigSnapshot()
+	buf.WriteString("[telegram]\n")
+	buf.WriteString(fmt.Sprintf("enabled = %t\n", tg.Enabled))
+	buf.WriteString(fmt.Sprintf("bot_token = \"%s\"\n", tomlEscape(tg.BotToken)))
+	buf.WriteString(fmt.Sprintf("chat_id = \"%s\"\n", tomlEscape(tg.ChatID)))
+	buf.WriteString(fmt.Sprintf("daily_report = %t\n", tg.DailyReport))
+	buf.WriteString(fmt.Sprintf("report_time = \"%s\"\n", tomlEscape(tg.ReportTime)))
+	buf.WriteString(fmt.Sprintf("alert_quota = %t\n", tg.AlertQuota))
+	buf.WriteString(fmt.Sprintf("alert_gfw = %t\n\n", tg.AlertGFW))
 
 	buf.WriteString("[session]\n")
-	buf.WriteString(fmt.Sprintf("secret = \"%s\"\n\n", panelConfig.Session.Secret))
+	buf.WriteString(fmt.Sprintf("secret = \"%s\"\n\n", tomlEscape(panelConfig.Session.Secret)))
 
 	buf.WriteString("[metrics]\n")
-	buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", panelConfig.Metrics.Token))
+	buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", tomlEscape(panelConfig.Metrics.Token)))
 
 	if len(panelConfig.Nodes) > 0 {
 		for _, n := range panelConfig.Nodes {
 			buf.WriteString("[[nodes]]\n")
-			buf.WriteString(fmt.Sprintf("name = \"%s\"\n", n.Name))
-			buf.WriteString(fmt.Sprintf("url = \"%s\"\n", n.URL))
-			buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", n.Token))
+			buf.WriteString(fmt.Sprintf("name = \"%s\"\n", tomlEscape(n.Name)))
+			buf.WriteString(fmt.Sprintf("url = \"%s\"\n", tomlEscape(n.URL)))
+			buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", tomlEscape(n.Token)))
 		}
 	}
 
@@ -405,6 +441,35 @@ func saveRulesLocked() error {
 		return err
 	}
 	return os.WriteFile(panelConfig.Nftables.RulesPath, data, 0600)
+}
+
+// --- Realm 规则持久化 ---
+
+// 调用方必须持有 mu 锁
+func LoadRealmRules() error {
+	dir := filepath.Dir(panelConfig.Realm.RulesPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("创建 Realm 规则目录失败 %s: %v", dir, err)
+	}
+
+	data, err := os.ReadFile(panelConfig.Realm.RulesPath)
+	if err != nil {
+		realmRules = []RealmRule{}
+		return saveRealmRulesLocked()
+	}
+	if err := json.Unmarshal(data, &realmRules); err != nil {
+		return err
+	}
+	return nil
+}
+
+// 调用方必须持有 mu 锁
+func saveRealmRulesLocked() error {
+	data, err := json.MarshalIndent(realmRules, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(panelConfig.Realm.RulesPath, data, 0600)
 }
 
 // --- nftables 配置生成 ---
@@ -546,14 +611,30 @@ func applyNftRulesLocked() error {
 
 // --- Telegram 告警与通知推送 ---
 
+// noteOrDash 用于告警文案，备注为空时回退为占位符
+func noteOrDash(note string) string {
+	if strings.TrimSpace(note) == "" {
+		return "无备注"
+	}
+	return note
+}
+
+// tgConfigSnapshot 在 tgMu 保护下返回 Telegram 配置副本，供各协程无竞争读取
+func tgConfigSnapshot() TelegramConfig {
+	tgMu.RLock()
+	defer tgMu.RUnlock()
+	return panelConfig.Telegram
+}
+
 func sendTelegramNotification(text string) {
-	if !panelConfig.Telegram.Enabled || panelConfig.Telegram.BotToken == "" || panelConfig.Telegram.ChatID == "" {
+	tg := tgConfigSnapshot()
+	if !tg.Enabled || tg.BotToken == "" || tg.ChatID == "" {
 		return
 	}
 	go func() {
-		apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", panelConfig.Telegram.BotToken)
+		apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", tg.BotToken)
 		payload := map[string]string{
-			"chat_id":    panelConfig.Telegram.ChatID,
+			"chat_id":    tg.ChatID,
 			"text":       text,
 			"parse_mode": "Markdown",
 		}
@@ -576,9 +657,7 @@ func generateRealmConfLocked() error {
 	}
 	var buf bytes.Buffer
 	buf.WriteString("# Realm Configuration generated by nft-panel\n\n")
-	buf.WriteString("[network]\n")
-	buf.WriteString("no_tcp = false\n")
-	buf.WriteString("use_udp = true\n\n")
+	buf.WriteString("[network]\nno_tcp = false\nuse_udp = true\n\n")
 
 	for _, rule := range realmRules {
 		if !rule.Enabled {
@@ -587,8 +666,17 @@ func generateRealmConfLocked() error {
 		buf.WriteString("[[endpoints]]\n")
 		buf.WriteString(fmt.Sprintf("listen = \"0.0.0.0:%s\"\n", rule.ListenPort))
 		buf.WriteString(fmt.Sprintf("remote = \"%s:%s\"\n", rule.RemoteAddr, rule.RemotePort))
-		if rule.Network != "" {
-			buf.WriteString(fmt.Sprintf("network = \"%s\"\n", rule.Network))
+
+		// 将前端的 network 选项映射为 realm 的 no_tcp / use_udp 布尔值
+		// realm 端点级别通过 network 内联表覆盖全局 [network] 配置
+		switch rule.Network {
+		case "tcp":
+			// 只转 TCP：禁用 UDP
+			buf.WriteString("network = { use_udp = false }\n")
+		case "udp":
+			// 只转 UDP：禁用 TCP
+			buf.WriteString("network = { no_tcp = true }\n")
+		// "tcp+udp" 或空值：使用全局默认（no_tcp=false, use_udp=true），无需额外配置
 		}
 		buf.WriteString("\n")
 	}
@@ -598,13 +686,25 @@ func generateRealmConfLocked() error {
 	return os.WriteFile(panelConfig.Realm.ConfigPath, buf.Bytes(), 0644)
 }
 
-func applyRealmRulesLocked() error {
-	if err := generateRealmConfLocked(); err != nil {
-		return err
+// applyRealmRulesLocked 持久化 Realm 规则、重新生成 realm 配置并重启服务
+// 调用方必须持有 mu 锁，且在调用前将 backup 设为修改前的 realmRules 快照
+// 落盘或生成配置失败时回滚内存状态；服务重启失败不回滚（规则已持久化，
+// 待 realm 安装或修复后生效），但会返回错误让前端提示用户
+func applyRealmRulesLocked(backup []RealmRule) error {
+	if err := saveRealmRulesLocked(); err != nil {
+		realmRules = backup
+		return fmt.Errorf("保存 Realm 规则失败: %v", err)
 	}
-	// 重启 realm 服务（如果存在）
-	cmd := exec.Command("systemctl", "restart", "realm")
-	_ = cmd.Run()
+	if err := generateRealmConfLocked(); err != nil {
+		realmRules = backup
+		_ = saveRealmRulesLocked()
+		return fmt.Errorf("生成 Realm 配置失败: %v", err)
+	}
+	out, err := exec.Command("systemctl", "restart", "realm").CombinedOutput()
+	if err != nil {
+		log.Printf("[Realm] 重启服务失败: %v (%s)", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("规则已保存，但 realm 服务重启失败（是否已安装 realm？）: %v", err)
+	}
 	return nil
 }
 
@@ -885,6 +985,16 @@ func main() {
 	if err := LoadRules(); err != nil {
 		log.Fatalf("无法加载转发规则: %v", err)
 	}
+	if err := LoadRealmRules(); err != nil {
+		log.Printf("加载 Realm 规则失败: %v", err)
+	} else if len(realmRules) > 0 {
+		// 重新生成 realm 配置，确保磁盘配置与面板状态一致
+		if err := generateRealmConfLocked(); err != nil {
+			log.Printf("启动时生成 Realm 配置失败: %v", err)
+		} else {
+			log.Printf("启动时已加载 %d 条 Realm 规则", len(realmRules))
+		}
+	}
 	// 启动时自动重新生成并应用 nftables 配置（确保 forward 统计链等新功能生效）
 	if err := applyNftRulesLocked(); err != nil {
 		log.Printf("启动时应用规则失败（可能首次安装未配置）: %v", err)
@@ -977,6 +1087,8 @@ func main() {
 			// GFW 流量异常追踪：统计本轮有流量增量的规则数 和 目标可达的规则数
 			currActiveRules := 0
 			currReachableRules := 0
+			// 本轮因超额被封停的规则，待释放 mu 后再推送 TG 告警
+			var quotaAlerts []string
 
 			for i := range rules {
 				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
@@ -1045,6 +1157,10 @@ func main() {
 						rules[i].Enabled = false
 						changed = true
 						log.Printf("规则 %s (端口 %s) 流量超额，已封停", rules[i].ID, rules[i].LocalPort)
+						quotaAlerts = append(quotaAlerts, fmt.Sprintf(
+							"端口 %s（%s）已用 %.2f GB / 配额 %.2f GB",
+							rules[i].LocalPort, noteOrDash(rules[i].Note),
+							float64(rules[i].UsedBytes)/(1024*1024*1024), rules[i].QuotaGB))
 					}
 				}
 			}
@@ -1058,6 +1174,13 @@ func main() {
 			lastCounterSnap = counterMap
 			totalRulesThisCycle := len(rules)
 			mu.Unlock()
+
+			// 配额超额告警（在释放 mu 后推送，避免持锁做网络 IO）
+			if len(quotaAlerts) > 0 && tgConfigSnapshot().AlertQuota {
+				sendTelegramNotification(fmt.Sprintf(
+					"*流量配额告警*\n\n以下 %d 条规则已达配额并自动封停：\n\n%s",
+					len(quotaAlerts), strings.Join(quotaAlerts, "\n")))
+			}
 
 			// === GFW 混合检测 ===
 			// 策略：默认每 5 分钟定时探测一次；流量异常时立即触发确认
@@ -1076,7 +1199,8 @@ func main() {
 				gfwTickCount = 0
 				isGFWBlocked := checkGFWBlocked()
 				gfwMu.Lock()
-				if isGFWBlocked != gfwBlocked {
+				gfwChanged := isGFWBlocked != gfwBlocked
+				if gfwChanged {
 					if isGFWBlocked {
 						log.Println("[GFW] ⚠️ 检测到服务器 IP 可能被墙：国内 DNS 端点全部超时，国际端点正常")
 					} else {
@@ -1085,6 +1209,15 @@ func main() {
 					gfwBlocked = isGFWBlocked
 				}
 				gfwMu.Unlock()
+
+				// 封锁状态发生翻转时推送 TG 告警（仅状态变化时推送，避免重复轰炸）
+				if gfwChanged && tgConfigSnapshot().AlertGFW {
+					if isGFWBlocked {
+						sendTelegramNotification("*GFW 封锁告警*\n\n检测到服务器 IP 可能被墙：国内 DNS 端点全部超时，国际端点正常。\n所有中转链路可能已中断，请及时更换 IP。")
+					} else {
+						sendTelegramNotification("*GFW 封锁解除*\n\n服务器 IP 国内连通性已恢复，中转链路恢复正常。")
+					}
+				}
 			}
 		}
 	}()
@@ -1864,12 +1997,54 @@ func main() {
 				c.JSON(400, gin.H{"error": "无效的规则数据"})
 				return
 			}
+
+			// --- 输入校验（复用 nftables 的 validatePort/validateAddress） ---
+			if !validatePort(rule.ListenPort) {
+				c.JSON(400, gin.H{"error": "监听端口无效 (1-65535)"})
+				return
+			}
+			if !validatePort(rule.RemotePort) {
+				c.JSON(400, gin.H{"error": "目标端口无效 (1-65535)"})
+				return
+			}
+			if !validateAddress(rule.RemoteAddr) {
+				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
+				return
+			}
+			// network 只允许三种值
+			if rule.Network == "" {
+				rule.Network = "tcp+udp"
+			}
+			if rule.Network != "tcp+udp" && rule.Network != "tcp" && rule.Network != "udp" {
+				c.JSON(400, gin.H{"error": "协议类型无效，仅支持 tcp+udp / tcp / udp"})
+				return
+			}
+
 			rule.ID = uuid.New().String()[:8]
 			rule.Enabled = true
 
 			mu.Lock()
+			// --- 端口冲突检查：realm 内部 ---
+			for _, r := range realmRules {
+				if r.ListenPort == rule.ListenPort {
+					mu.Unlock()
+					c.JSON(409, gin.H{"error": fmt.Sprintf("监听端口 %s 已被其他 Realm 规则占用", rule.ListenPort)})
+					return
+				}
+			}
+			// --- 端口冲突检查：与 nftables 规则交叉 ---
+			for _, r := range rules {
+				if r.LocalPort == rule.ListenPort {
+					mu.Unlock()
+					c.JSON(409, gin.H{"error": fmt.Sprintf("监听端口 %s 已被 nftables 转发规则占用", rule.ListenPort)})
+					return
+				}
+			}
+
+			backup := make([]RealmRule, len(realmRules))
+			copy(backup, realmRules)
 			realmRules = append(realmRules, rule)
-			err := applyRealmRulesLocked()
+			err := applyRealmRulesLocked(backup)
 			mu.Unlock()
 
 			if err != nil {
@@ -1891,20 +2066,32 @@ func main() {
 					newRules = append(newRules, r)
 				}
 			}
-			if found {
-				realmRules = newRules
-				_ = applyRealmRulesLocked()
-				mu.Unlock()
-				c.JSON(200, gin.H{"message": "Realm 规则已删除"})
-			} else {
+			if !found {
 				mu.Unlock()
 				c.JSON(404, gin.H{"error": "规则不存在"})
+				return
 			}
+			backup := make([]RealmRule, len(realmRules))
+			copy(backup, realmRules)
+			realmRules = newRules
+			err := applyRealmRulesLocked(backup)
+			mu.Unlock()
+
+			if err != nil {
+				c.JSON(500, gin.H{"error": "配置应用失败: " + err.Error()})
+				return
+			}
+			c.JSON(200, gin.H{"message": "Realm 规则已删除"})
 		})
 
 		// --- Telegram API ---
 		api.GET("/api/tg/config", func(c *gin.Context) {
-			c.JSON(200, panelConfig.Telegram)
+			cfg := tgConfigSnapshot()
+			// 掩码 bot_token：只保留前 6 位 + 冒号前部分，避免明文泄露
+			if len(cfg.BotToken) > 6 {
+				cfg.BotToken = cfg.BotToken[:6] + ":****"
+			}
+			c.JSON(200, cfg)
 		})
 
 		api.POST("/api/tg/config", func(c *gin.Context) {
@@ -1913,7 +2100,18 @@ func main() {
 				c.JSON(400, gin.H{"error": "无效配置"})
 				return
 			}
+			if cfg.ReportTime == "" {
+				cfg.ReportTime = "08:00"
+			}
+			if _, err := time.Parse("15:04", cfg.ReportTime); err != nil {
+				c.JSON(400, gin.H{"error": "推送时间格式无效，应为 HH:MM"})
+				return
+			}
+
+			tgMu.Lock()
 			panelConfig.Telegram = cfg
+			tgMu.Unlock()
+
 			if err := savePanelConfig(); err != nil {
 				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
 				return
@@ -1932,34 +2130,72 @@ func main() {
 		lastPushedDate := ""
 		for {
 			time.Sleep(30 * time.Second)
-			if !panelConfig.Telegram.Enabled || !panelConfig.Telegram.DailyReport || panelConfig.Telegram.BotToken == "" || panelConfig.Telegram.ChatID == "" {
+
+			tg := tgConfigSnapshot()
+			if !tg.Enabled || !tg.DailyReport || tg.BotToken == "" || tg.ChatID == "" {
 				continue
 			}
-			targetTime := panelConfig.Telegram.ReportTime
+			targetTime := tg.ReportTime
 			if targetTime == "" {
 				targetTime = "08:00"
 			}
-			now := time.Now()
-			currentHM := now.Format("15:04")
-			currentDate := now.Format("2006-01-02")
-
-			if currentHM == targetTime && lastPushedDate != currentDate {
-				lastPushedDate = currentDate
-				mu.Lock()
-				var totalUsed uint64
-				activeCount := 0
-				for _, r := range rules {
-					totalUsed += r.UsedBytes
-					if r.Enabled {
-						activeCount++
-					}
-				}
-				mu.Unlock()
-
-				usedGB := float64(totalUsed) / (1024 * 1024 * 1024)
-				msg := fmt.Sprintf("📊 *Forward Pro 每日流量报告*\n\n📅 日期: %s\n⚡ 活跃规则数: %d 条\n📈 总已用流量: %.2f GB\n\n系统运行正常！", currentDate, activeCount, usedGB)
-				sendTelegramNotification(msg)
+			target, err := time.Parse("15:04", targetTime)
+			if err != nil {
+				continue
 			}
+
+			now := time.Now()
+			currentDate := now.Format("2006-01-02")
+			if lastPushedDate == currentDate {
+				continue
+			}
+			// 用「今天已过推送时间」而非精确匹配分钟，避免调度抖动导致整天漏推
+			todayTarget := time.Date(now.Year(), now.Month(), now.Day(),
+				target.Hour(), target.Minute(), 0, 0, now.Location())
+			if now.Before(todayTarget) {
+				continue
+			}
+			// 首次启动补推保护：距目标时间超过 6 小时则跳过，只标记，避免重启时补发过期报告
+			if now.Sub(todayTarget) > 6*time.Hour {
+				lastPushedDate = currentDate
+				continue
+			}
+			lastPushedDate = currentDate
+
+			mu.Lock()
+			var totalUsed uint64
+			activeCount := 0
+			suspended := 0
+			for _, r := range rules {
+				totalUsed += r.UsedBytes
+				if r.Enabled {
+					activeCount++
+				} else {
+					suspended++
+				}
+			}
+			totalRules := len(rules)
+			realmCount := len(realmRules)
+			mu.Unlock()
+
+			gfwMu.RLock()
+			blocked := gfwBlocked
+			gfwMu.RUnlock()
+
+			statusLine := "系统运行正常"
+			if blocked {
+				statusLine = "⚠️ 当前检测到 IP 可能被墙"
+			}
+
+			usedGB := float64(totalUsed) / (1024 * 1024 * 1024)
+			msg := fmt.Sprintf(
+				"📊 *Forward Pro 每日流量报告*\n\n"+
+					"📅 日期: %s\n"+
+					"⚡ nftables 规则: %d 条（活跃 %d / 封停 %d）\n"+
+					"🔮 Realm 规则: %d 条\n"+
+					"📈 总已用流量: %.2f GB\n\n%s",
+				currentDate, totalRules, activeCount, suspended, realmCount, usedGB, statusLine)
+			sendTelegramNotification(msg)
 		}
 	}()
 

@@ -940,98 +940,6 @@
                     ⚠️ 检测到服务器 IP 可能被墙
                 </div>
 
-                <!-- 管理监控节点（始终可见，用户可通过 UI 添加/删除远程被控节点） -->
-                <div class="card" style="margin-bottom:20px" id="nodeManageCard">
-                    <div class="card-header">
-                        <h2>
-                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                                <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
-                            </svg>
-                            <span data-i18n="nodeManage.title">管理监控节点</span>
-                        </h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="nodeManageList" style="margin-bottom:12px"></div>
-                        <div class="form-grid" style="grid-template-columns: repeat(3, 1fr) auto; gap:10px; align-items:end">
-                            <div class="form-group">
-                                <label>节点名称</label>
-                                <input type="text" id="nodeManageName" placeholder="如: 东京中转">
-                            </div>
-                            <div class="form-group">
-                                <label>节点地址</label>
-                                <input type="text" id="nodeManageURL" placeholder="如: https://1.2.3.4:3456">
-                            </div>
-                            <div class="form-group">
-                                <label>Metrics Token</label>
-                                <input type="text" id="nodeManageToken" placeholder="被控端的 Token">
-                            </div>
-                            <div class="form-group">
-                                <button class="btn btn-primary btn-sm" id="addNodeBtn" style="margin-top:20px">添加节点</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 节点总览（主控大盘，有被控节点数据时自动显示） -->
-                <div class="card" style="margin-bottom:20px" id="overviewCard" hidden>
-                    <div class="card-header">
-                        <h2>
-                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
-                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                            </svg>
-                            <span data-i18n="overview.title">节点总览</span>
-                        </h2>
-                        <button class="btn btn-outline btn-sm" id="refreshOverviewBtn">
-                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                            </svg>
-                            <span data-i18n="btn.refresh">刷新</span>
-                        </button>
-                    </div>
-                    <div class="table-wrapper">
-                        <table class="overview-table">
-                            <thead>
-                                <tr>
-                                    <th data-i18n="overview.node">节点名</th>
-                                    <th data-i18n="overview.online">在线</th>
-                                    <th data-i18n="overview.rules">规则数</th>
-                                    <th data-i18n="overview.used">总已用</th>
-                                    <th data-i18n="overview.quota">总配额</th>
-                                    <th data-i18n="overview.lastUpdate">最后更新</th>
-                                </tr>
-                            </thead>
-                            <tbody id="overviewBody">
-                                <tr><td colspan="6" class="overview-empty">加载中...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Deployed Nodes -->
-                <div class="card" style="margin-bottom:20px">
-                    <div class="card-header">
-                        <h2>
-                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                                <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
-                            </svg>
-                            <span data-i18n="nodes.title">已部署节点</span>
-                        </h2>
-                        <button class="btn btn-outline btn-sm" id="refreshNodesBtn">
-                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                            </svg>
-                            刷新
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <div id="nodesContainer" class="nodes-grid">
-                            <div class="nodes-empty">加载中...</div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Rules Table -->
                 <div class="card">
@@ -1264,19 +1172,103 @@
             </div><!-- /view-realm -->
 
             <!-- ============================================================
-                 视图 3: 节点管理（从 nftables 视图中独立出来的节点总览和已部署节点可在此访问或在主页直接看到）
+                 视图 3: 节点管理
                  ============================================================ -->
             <div class="view-panel" id="view-nodes">
-                <div class="card">
-                    <div class="card-body" style="text-align:center;color:var(--text-muted);padding:60px 20px">
-                        <svg class="icon-svg" style="width:48px;height:48px;margin-bottom:16px;color:var(--text-muted)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                            <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
-                        </svg>
-                        <p style="font-size:15px;margin-bottom:8px">节点管理已集成在 nftables 规则页面中</p>
-                        <p style="font-size:13px">请切换到 <strong>nftables 规则</strong> 页查看"管理监控节点"和"已部署节点"卡片</p>
+
+                <!-- 管理监控节点 -->
+                <div class="card" style="margin-bottom:20px" id="nodeManageCard">
+                    <div class="card-header">
+                        <h2>
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
+                            </svg>
+                            <span data-i18n="nodeManage.title">管理监控节点</span>
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="nodeManageList" style="margin-bottom:12px"></div>
+                        <div class="form-grid" style="grid-template-columns: repeat(3, 1fr) auto; gap:10px; align-items:end">
+                            <div class="form-group">
+                                <label>节点名称</label>
+                                <input type="text" id="nodeManageName" placeholder="如: 东京中转">
+                            </div>
+                            <div class="form-group">
+                                <label>节点地址</label>
+                                <input type="text" id="nodeManageURL" placeholder="如: https://1.2.3.4:3456">
+                            </div>
+                            <div class="form-group">
+                                <label>Metrics Token</label>
+                                <input type="text" id="nodeManageToken" placeholder="被控端的 Token">
+                            </div>
+                            <div class="form-group">
+                                <button class="btn btn-primary btn-sm" id="addNodeBtn" style="margin-top:20px">添加节点</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
+
+                <!-- 节点总览大盘 -->
+                <div class="card" style="margin-bottom:20px" id="overviewCard" hidden>
+                    <div class="card-header">
+                        <h2>
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                            </svg>
+                            <span data-i18n="overview.title">节点总览</span>
+                        </h2>
+                        <button class="btn btn-outline btn-sm" id="refreshOverviewBtn">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            <span data-i18n="btn.refresh">刷新</span>
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="overview-table">
+                            <thead>
+                                <tr>
+                                    <th data-i18n="overview.node">节点名</th>
+                                    <th data-i18n="overview.online">在线</th>
+                                    <th data-i18n="overview.rules">规则数</th>
+                                    <th data-i18n="overview.used">总已用</th>
+                                    <th data-i18n="overview.quota">总配额</th>
+                                    <th data-i18n="overview.lastUpdate">最后更新</th>
+                                </tr>
+                            </thead>
+                            <tbody id="overviewBody">
+                                <tr><td colspan="6" class="overview-empty">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 已部署节点 -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-header">
+                        <h2>
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                <line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>
+                            </svg>
+                            <span data-i18n="nodes.title">已部署节点</span>
+                        </h2>
+                        <button class="btn btn-outline btn-sm" id="refreshNodesBtn">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="nodesContainer" class="nodes-grid">
+                            <div class="nodes-empty">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
             </div><!-- /view-nodes -->
 
             <!-- ============================================================

@@ -46,6 +46,16 @@ get_panel_status() {
     fi
 }
 
+get_realm_status() {
+    if [ ! -f /usr/local/bin/realm ]; then
+        echo -e "${RED}未安装${PLAIN}"
+    elif systemctl is-active --quiet realm; then
+        echo -e "${GREEN}运行中${PLAIN}"
+    else
+        echo -e "${YELLOW}已安装但未启动${PLAIN}"
+    fi
+}
+
 # --- 核心校验函数 ---
 validate_port() {
     local port=$1
@@ -301,6 +311,20 @@ EOF
     fi
 
     echo -e "${GREEN}已完全卸载转发配置${PLAIN}"
+
+    # 8. 清理 Realm 服务与配置
+    if [ -f /usr/local/bin/realm ] || systemctl is-enabled realm 2>/dev/null | grep -q enabled; then
+        read -p "是否同时卸载 Realm 转发服务? [y/N]: " del_realm
+        if [[ "$del_realm" == "y" || "$del_realm" == "Y" ]]; then
+            systemctl stop realm 2>/dev/null
+            systemctl disable realm 2>/dev/null
+            rm -f /etc/systemd/system/realm.service
+            systemctl daemon-reload
+            rm -f /usr/local/bin/realm
+            rm -rf /etc/realm
+            echo -e "${GREEN}Realm 已卸载${PLAIN}"
+        fi
+    fi
 }
 
 # --- 代理服务安装管理 ---
@@ -824,7 +848,14 @@ install_realm() {
     if curl -sL "$url" -o "/tmp/${r_file}" || wget -O "/tmp/${r_file}" "$url"; then
         tar -xzf "/tmp/${r_file}" -C /usr/local/bin/ && chmod +x /usr/local/bin/realm
         rm -f "/tmp/${r_file}"
-        
+
+        # 校验二进制是否可用
+        if [ ! -x /usr/local/bin/realm ]; then
+            echo -e "${RED}Realm 二进制不存在或不可执行，部署失败！${PLAIN}"
+            return
+        fi
+        echo -e "${GREEN}Realm 版本: $(/usr/local/bin/realm --version 2>/dev/null || echo '未知')${PLAIN}"
+
         # 默认基础配置
         if [ ! -f /etc/realm/config.toml ]; then
             cat > /etc/realm/config.toml <<EOF
@@ -865,6 +896,7 @@ show_menu() {
     echo "#    nftables & Realm 端口转发脚本 (v${sh_ver})  #"
     echo "################################################"
     echo -e " nftables 状态: $(get_nft_status)"
+    echo -e " Realm 状态:    $(get_realm_status)"
     echo -e " 面板 状态:     $(get_panel_status)"
     echo "------------------------------------------------"
     echo "  1. 安装 / 重置 nftables 转发"
