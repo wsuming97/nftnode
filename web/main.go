@@ -1513,6 +1513,71 @@ func main() {
 		return true
 	}
 
+	// 读取被控端当前 Xray/SS 配置（供主控端编辑弹窗预填）
+	r.GET("/api/node/current-config", func(c *gin.Context) {
+		if !metricsAuth(c) {
+			return
+		}
+
+		result := gin.H{}
+
+		// 读取 Xray Reality 配置
+		xrayConfigPath := "/usr/local/etc/xray/config.json"
+		if data, err := os.ReadFile(xrayConfigPath); err == nil {
+			var cfg map[string]interface{}
+			if json.Unmarshal(data, &cfg) == nil {
+				xray := gin.H{}
+				// 提取 listen port
+				if inbounds, ok := cfg["inbounds"].([]interface{}); ok && len(inbounds) > 0 {
+					if ib, ok := inbounds[0].(map[string]interface{}); ok {
+						if port, ok := ib["port"]; ok {
+							xray["port"] = port
+						}
+						// 提取 reality 配置
+						if ss, ok := ib["streamSettings"].(map[string]interface{}); ok {
+							if rs, ok := ss["realitySettings"].(map[string]interface{}); ok {
+								if dest, ok := rs["dest"]; ok {
+									xray["dest"] = dest
+								}
+								if sNames, ok := rs["serverNames"].([]interface{}); ok && len(sNames) > 0 {
+									xray["sni"] = sNames[0]
+								}
+								if sIds, ok := rs["shortIds"].([]interface{}); ok && len(sIds) > 0 {
+									xray["short_id"] = sIds[0]
+								}
+							}
+							if fp, ok := ss["tlsSettings"].(map[string]interface{}); ok {
+								if fingerprint, ok := fp["fingerprint"]; ok {
+									xray["fingerprint"] = fingerprint
+								}
+							}
+						}
+					}
+				}
+				result["xray"] = xray
+			}
+		}
+
+		// 读取 Shadowsocks 配置
+		ssConfigPath := "/etc/shadowsocks/config.json"
+		if data, err := os.ReadFile(ssConfigPath); err == nil {
+			var cfg map[string]interface{}
+			if json.Unmarshal(data, &cfg) == nil {
+				ss := gin.H{}
+				if port, ok := cfg["server_port"]; ok {
+					ss["port"] = port
+				}
+				if method, ok := cfg["method"]; ok {
+					ss["method"] = method
+				}
+				// 注意：不返回 password 明文
+				result["ss"] = ss
+			}
+		}
+
+		c.JSON(200, result)
+	})
+
 	// 远程修改 Xray Reality 配置
 	// 支持字段：sni, dest, port, short_id, fingerprint, spider_x
 	// 修改服务端 config.json + 客户端 reclient.json，然后重启 xray 服务
@@ -2113,6 +2178,46 @@ func main() {
 			}
 			log.Printf("删除监控节点: %s (%s)", removed.Name, removed.URL)
 			c.JSON(200, gin.H{"message": "节点已删除"})
+		})
+
+		// --- 主控端：代理读取被控端当前配置（编辑弹窗预填） ---
+		api.GET("/api/remote-node/config", func(c *gin.Context) {
+			idxStr := c.Query("idx")
+			idx, err := strconv.Atoi(idxStr)
+			if err != nil {
+				c.JSON(400, gin.H{"error": "缺少或无效的 idx 参数"})
+				return
+			}
+			nodesMu.RLock()
+			if idx < 0 || idx >= len(panelConfig.Nodes) {
+				nodesMu.RUnlock()
+				c.JSON(404, gin.H{"error": "节点索引不存在"})
+				return
+			}
+			target := panelConfig.Nodes[idx]
+			nodesMu.RUnlock()
+
+			client := &http.Client{Timeout: 10 * time.Second}
+			req, err := http.NewRequest("GET", target.URL+"/api/node/current-config", nil)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "构造请求失败"})
+				return
+			}
+			req.Header.Set("Authorization", "Bearer "+target.Token)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				c.JSON(502, gin.H{"error": "连接被控端失败: " + err.Error()})
+				return
+			}
+			defer resp.Body.Close()
+
+			respBody, _ := io.ReadAll(resp.Body)
+			var result gin.H
+			if err := json.Unmarshal(respBody, &result); err != nil {
+				result = gin.H{"raw_response": string(respBody)}
+			}
+			c.JSON(resp.StatusCode, result)
 		})
 
 		// --- 主控端：代理转发远程节点配置修改 ---

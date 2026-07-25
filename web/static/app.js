@@ -962,12 +962,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = n.name || n.Name || '';
             const url = n.url || n.URL || '';
             const token = n.token || n.Token || '';
-            return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
-                <strong style="flex:1;font-size:13px">${name}</strong>
-                <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${url}</span>
-                <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${token}">${token ? token.substring(0,12) + '...' : '-'}</span>
-                <button class="btn btn-outline btn-sm" data-edit-node="${idx}" data-node-name="${name}">编辑配置</button>
-                <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
+            return `<div style="background:var(--bg-secondary);border-radius:8px;padding:12px 16px;margin-bottom:8px;border:1px solid var(--border)">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <strong style="font-size:14px">${name}</strong>
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-outline btn-sm" data-edit-node="${idx}" data-node-name="${name}">⚙️ 编辑配置</button>
+                        <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">
+                    <span style="font-family:monospace">📡 ${url}</span>
+                    <span style="font-family:monospace;color:var(--text-muted)" title="${token}">🔑 ${token ? token.substring(0,16) + '...' : '-'}</span>
+                </div>
             </div>`;
         }).join('');
 
@@ -1050,7 +1056,7 @@ document.addEventListener('DOMContentLoaded', () => {
     remoteNodeModal.addEventListener('click', (e) => { if (e.target === remoteNodeModal) closeRemoteNodeModal(); });
 
     // 打开编辑弹窗（由 renderNodeManage 中的编辑按钮触发）
-    function openRemoteNodeEditModal(nodeIdx, nodeName) {
+    async function openRemoteNodeEditModal(nodeIdx, nodeName) {
         document.getElementById('remoteNodeIdx').value = nodeIdx;
         document.getElementById('remoteNodeModalTitle').textContent = `编辑远程配置 - ${nodeName}`;
         // 清空所有输入
@@ -1064,6 +1070,31 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('remoteXrayFields').style.display = '';
         document.getElementById('remoteSsFields').style.display = 'none';
         remoteNodeModal.style.display = 'flex';
+
+        // 异步预填：从被控端读取当前配置
+        try {
+            document.getElementById('remoteNodeModalTitle').textContent = `编辑远程配置 - ${nodeName}（读取中...）`;
+            const res = await fetch(`/api/remote-node/config?idx=${nodeIdx}`);
+            if (res.ok) {
+                const data = await res.json();
+                // 预填 Xray 配置
+                if (data.xray) {
+                    if (data.xray.sni) document.getElementById('remoteXraySNI').value = data.xray.sni;
+                    if (data.xray.port) document.getElementById('remoteXrayPort').value = data.xray.port;
+                    if (data.xray.short_id) document.getElementById('remoteXrayShortID').value = data.xray.short_id;
+                    if (data.xray.dest) document.getElementById('remoteXrayDest') && (document.getElementById('remoteXrayDest').value = data.xray.dest);
+                    if (data.xray.fingerprint) document.getElementById('remoteXrayFingerprint').value = data.xray.fingerprint;
+                }
+                // 预填 SS 配置
+                if (data.ss) {
+                    if (data.ss.port) document.getElementById('remoteSsPort').value = data.ss.port;
+                    if (data.ss.method) document.getElementById('remoteSsMethod').value = data.ss.method;
+                }
+            }
+            document.getElementById('remoteNodeModalTitle').textContent = `编辑远程配置 - ${nodeName}`;
+        } catch (e) {
+            document.getElementById('remoteNodeModalTitle').textContent = `编辑远程配置 - ${nodeName}（读取失败）`;
+        }
     }
     // 暴露给 renderNodeManage 中的事件绑定
     window._openRemoteNodeEditModal = openRemoteNodeEditModal;
