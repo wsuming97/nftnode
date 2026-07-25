@@ -963,6 +963,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong style="flex:1;font-size:13px">${n.name}</strong>
                 <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${n.url}</span>
                 <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${n.token}">${n.token.substring(0,12)}...</span>
+                <button class="btn btn-outline btn-sm" data-edit-node="${idx}" data-node-name="${n.name}">编辑配置</button>
                 <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
             </div>`;
         }).join('');
@@ -982,6 +983,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     fetchOverview();
                 } catch (err) {
                     showToast(err.message, 'error');
+                }
+            });
+        });
+
+        // 编辑配置按钮事件绑定
+        nodeManageList.querySelectorAll('[data-edit-node]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.editNode);
+                const name = btn.dataset.nodeName || '未命名';
+                if (window._openRemoteNodeEditModal) {
+                    window._openRemoteNodeEditModal(idx, name);
                 }
             });
         });
@@ -1026,6 +1038,90 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchNodes();
     fetchOverview();
     fetchNodeManage();
+
+    // --- 远程节点配置编辑弹窗 ---
+    const remoteNodeModal = document.getElementById('remoteNodeModal');
+    const closeRemoteNodeModal = () => { remoteNodeModal.style.display = 'none'; };
+    document.getElementById('closeRemoteNodeModal').addEventListener('click', closeRemoteNodeModal);
+    document.getElementById('cancelRemoteNodeModal').addEventListener('click', closeRemoteNodeModal);
+    remoteNodeModal.addEventListener('click', (e) => { if (e.target === remoteNodeModal) closeRemoteNodeModal(); });
+
+    // 打开编辑弹窗（由 renderNodeManage 中的编辑按钮触发）
+    function openRemoteNodeEditModal(nodeIdx, nodeName) {
+        document.getElementById('remoteNodeIdx').value = nodeIdx;
+        document.getElementById('remoteNodeModalTitle').textContent = `编辑远程配置 - ${nodeName}`;
+        // 清空所有输入
+        ['remoteXraySNI','remoteXrayPort','remoteXrayShortID','remoteXraySpiderX','remoteSsPort','remoteSsPassword'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('remoteXrayFingerprint').value = '';
+        document.getElementById('remoteSsMethod').value = '';
+        // 默认显示 Xray 字段
+        document.getElementById('remoteNodeType').value = 'xray';
+        document.getElementById('remoteXrayFields').style.display = '';
+        document.getElementById('remoteSsFields').style.display = 'none';
+        remoteNodeModal.style.display = 'flex';
+    }
+    // 暴露给 renderNodeManage 中的事件绑定
+    window._openRemoteNodeEditModal = openRemoteNodeEditModal;
+
+    // 协议类型切换
+    document.getElementById('remoteNodeTypeSelect').addEventListener('change', (e) => {
+        const type = e.target.value;
+        document.getElementById('remoteNodeType').value = type;
+        document.getElementById('remoteXrayFields').style.display = type === 'xray' ? '' : 'none';
+        document.getElementById('remoteSsFields').style.display = type === 'ss' ? '' : 'none';
+    });
+
+    // 提交远程节点配置修改
+    document.getElementById('submitRemoteNodeModal').addEventListener('click', async () => {
+        const nodeIdx = parseInt(document.getElementById('remoteNodeIdx').value);
+        const nodeType = document.getElementById('remoteNodeType').value;
+        let body = { node_idx: nodeIdx, node_type: nodeType };
+
+        if (nodeType === 'xray') {
+            const sni = document.getElementById('remoteXraySNI').value.trim();
+            const port = parseInt(document.getElementById('remoteXrayPort').value) || 0;
+            const shortId = document.getElementById('remoteXrayShortID').value.trim();
+            const fingerprint = document.getElementById('remoteXrayFingerprint').value;
+            const spiderX = document.getElementById('remoteXraySpiderX').value.trim();
+            if (sni) body.sni = sni;
+            if (port > 0) body.port = port;
+            if (shortId) body.short_id = shortId;
+            if (fingerprint) body.fingerprint = fingerprint;
+            if (spiderX) body.spider_x = spiderX;
+        } else {
+            const port = parseInt(document.getElementById('remoteSsPort').value) || 0;
+            const password = document.getElementById('remoteSsPassword').value.trim();
+            const method = document.getElementById('remoteSsMethod').value;
+            if (port > 0) body.port = port;
+            if (password) body.password = password;
+            if (method) body.method = method;
+        }
+
+        // 检查是否有任何修改
+        const hasChanges = Object.keys(body).some(k => !['node_idx','node_type'].includes(k));
+        if (!hasChanges) {
+            showToast('未填写任何修改项', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/remote-node/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '修改失败');
+            showToast(data.message || '远程配置已更新', 'success');
+            closeRemoteNodeModal();
+            // 刷新节点信息
+            fetchNodes();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    });
 
     // 定时刷新状态与流量
     setInterval(updateStatus, 15000);

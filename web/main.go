@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -910,6 +911,218 @@ func checkGFWBlocked() bool {
 	return intlFail < len(intlEndpoints) && cnFail == len(cnEndpoints)
 }
 
+// remoteCfgMu 串行化远程配置修改（读-改-写-重启-回滚），避免并发交错破坏 .bak 与配置
+var remoteCfgMu sync.Mutex
+
+// Reality shortId：0-16 位十六进制、偶数长度（代表 0-8 字节）
+var reShortID = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+func validateShortID(s string) bool {
+	return reShortID.MatchString(s) && len(s) <= 16 && len(s)%2 == 0
+}
+
+// uTLS 指纹白名单（Xray 客户端 fingerprint 取值）
+var validFingerprints = map[string]bool{
+	"chrome": true, "firefox": true, "safari": true, "ios": true,
+	"android": true, "edge": true, "360": true, "qq": true,
+	"random": true, "randomized": true,
+}
+
+// shadowsocks-rust 支持的加密方式白名单
+var validSSMethods = map[string]bool{
+	"aes-128-gcm": true, "aes-256-gcm": true,
+	"chacha20-ietf-poly1305": true,
+	"2022-blake3-aes-128-gcm": true, "2022-blake3-aes-256-gcm": true,
+	"2022-blake3-chacha20-poly1305": true,
+	"plain":                         true, "none": true,
+}
+
+// restartAndVerify 重启服务并探活，服务未进入 active 视为失败
+func restartAndVerify(service string) error {
+	if out, err := exec.Command("systemctl", "restart", service).CombinedOutput(); err != nil {
+		return fmt.Errorf("restart 失败: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	// 服务可能启动后立即崩溃，稍等再确认最终状态
+	time.Sleep(800 * time.Millisecond)
+	if err := exec.Command("systemctl", "is-active", "--quiet", service).Run(); err != nil {
+		return fmt.Errorf("%s 重启后未处于 active 状态", service)
+	}
+	return nil
+}
+
+// applyServiceConfig 原子地应用新配置：先在临时文件上校验（validate 可为 nil），
+// 通过后备份并写入 live 配置、重启服务并探活；任一步失败都保证 live 配置与运行服务
+// 回到修改前的状态。返回 nil 表示新配置已生效。
+func applyServiceConfig(path string, newData []byte, service string, validate func(tmpPath string) error) error {
+	oldData, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("读取原配置失败: %v", err)
+	}
+
+	// 预校验在临时文件上进行，不触碰 live 配置
+	if validate != nil {
+		tmp := path + ".new"
+		if err := os.WriteFile(tmp, newData, 0644); err != nil {
+			return fmt.Errorf("写入临时配置失败: %v", err)
+		}
+		verr := validate(tmp)
+		_ = os.Remove(tmp)
+		if verr != nil {
+			return fmt.Errorf("配置校验未通过: %v", verr)
+		}
+	}
+
+	_ = os.WriteFile(path+".bak", oldData, 0644)
+	if err := os.WriteFile(path, newData, 0644); err != nil {
+		return fmt.Errorf("写入配置失败: %v", err)
+	}
+
+	if err := restartAndVerify(service); err != nil {
+		// 回滚到旧配置并尝试恢复服务
+		_ = os.WriteFile(path, oldData, 0644)
+		if rbErr := restartAndVerify(service); rbErr != nil {
+			return fmt.Errorf("%v；且回滚后服务仍异常: %v", err, rbErr)
+		}
+		return fmt.Errorf("%v，已回滚到原配置", err)
+	}
+	return nil
+}
+
+// updateXrayClientLink 根据服务端 config.json 重新生成客户端 reclient.json 中的连接链接
+// 在远程修改 Xray 配置后调用，确保客户端链接与服务端配置一致
+// fpOverride/spxOverride 为本次修改新指定的客户端指纹与 spiderX（客户端专属参数，
+// 不写入服务端 config.json）；为空时沿用 reclient.json 中已有的值，再退回默认。
+func updateXrayClientLink(xrayConfigPath, xrayClientPath, fpOverride, spxOverride string) {
+	data, err := os.ReadFile(xrayConfigPath)
+	if err != nil {
+		log.Printf("[远程配置] 读取 Xray 配置失败: %v", err)
+		return
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+
+	inbounds, ok := cfg["inbounds"].([]interface{})
+	if !ok || len(inbounds) == 0 {
+		return
+	}
+	ib, ok := inbounds[0].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// 提取关键参数
+	port := 443
+	if p, ok := ib["port"].(float64); ok {
+		port = int(p)
+	}
+	uuid := ""
+	flow := ""
+	if settings, ok := ib["settings"].(map[string]interface{}); ok {
+		if clients, ok := settings["clients"].([]interface{}); ok && len(clients) > 0 {
+			if cl, ok := clients[0].(map[string]interface{}); ok {
+				uuid, _ = cl["id"].(string)
+				flow, _ = cl["flow"].(string)
+			}
+		}
+	}
+	sni := ""
+	shortID := ""
+	publicKey := ""
+	// 指纹与 spiderX 是客户端参数，只从本次覆盖值 / reclient.json 取，不读服务端配置
+	fingerprint := fpOverride
+	spiderX := spxOverride
+	if ss, ok := ib["streamSettings"].(map[string]interface{}); ok {
+		if rs, ok := ss["realitySettings"].(map[string]interface{}); ok {
+			if sn, ok := rs["serverNames"].([]interface{}); ok && len(sn) > 0 {
+				sni, _ = sn[0].(string)
+			}
+			// shortIds 可能是 []string 或 []interface{}
+			if sids, ok := rs["shortIds"].([]interface{}); ok && len(sids) > 0 {
+				shortID, _ = sids[0].(string)
+			} else if sids, ok := rs["shortIds"].([]string); ok && len(sids) > 0 {
+				shortID = sids[0]
+			}
+			// 公钥存在 privateKey 同级的 publicKey 字段（reality 安装脚本写入）
+			publicKey, _ = rs["publicKey"].(string)
+		}
+	}
+
+	if uuid == "" {
+		return
+	}
+
+	// 获取本机 IP
+	serverIP := ""
+	ipOut, err := exec.Command("curl", "-s", "-4", "--max-time", "3", "ip.sb").Output()
+	if err != nil || len(strings.TrimSpace(string(ipOut))) == 0 {
+		ipOut, _ = exec.Command("curl", "-s", "--max-time", "3", "ip.sb").Output()
+	}
+	serverIP = strings.TrimSpace(string(ipOut))
+	if serverIP == "" {
+		log.Println("[远程配置] 无法获取服务器 IP，跳过更新 reclient.json")
+		return
+	}
+
+	// 读取现有 reclient.json（保留公钥等字段）
+	var clientCfg map[string]interface{}
+	if existingData, err := os.ReadFile(xrayClientPath); err == nil {
+		_ = json.Unmarshal(existingData, &clientCfg)
+	}
+	if clientCfg == nil {
+		clientCfg = make(map[string]interface{})
+	}
+
+	// 从已有 reclient.json 补齐未指定的字段（公钥/指纹/spiderX），保证多次编辑间不丢失
+	if params, ok := clientCfg["配置参数"].(map[string]interface{}); ok {
+		if publicKey == "" {
+			if pk, ok := params["公钥"].(string); ok {
+				publicKey = pk
+			}
+		}
+		if fingerprint == "" {
+			fingerprint, _ = params["指纹"].(string)
+		}
+		if spiderX == "" {
+			spiderX, _ = params["spiderX"].(string)
+		}
+	}
+	if fingerprint == "" {
+		fingerprint = "chrome"
+	}
+
+	// 构建 VLESS 链接
+	host := serverIP
+	if strings.Contains(serverIP, ":") {
+		host = "[" + serverIP + "]"
+	}
+	link := fmt.Sprintf("vless://%s@%s:%d?encryption=none&flow=%s&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&spx=%s&type=tcp#VLESS-%d",
+		uuid, host, port, flow, sni, fingerprint, publicKey, shortID, spiderX, port)
+
+	clientCfg["连接链接"] = link
+	clientCfg["配置参数"] = map[string]interface{}{
+		"地址":       serverIP,
+		"端口":       port,
+		"UUID":     uuid,
+		"流控":       flow,
+		"SNI":      sni,
+		"公钥":       publicKey,
+		"Short ID": shortID,
+		"指纹":       fingerprint,
+		"spiderX":  spiderX,
+	}
+
+	newClientData, err := json.MarshalIndent(clientCfg, "", "  ")
+	if err != nil {
+		log.Printf("[远程配置] 序列化 reclient.json 失败: %v", err)
+		return
+	}
+	if err := os.WriteFile(xrayClientPath, newClientData, 0644); err != nil {
+		log.Printf("[远程配置] 写入 reclient.json 失败: %v", err)
+	}
+}
+
 func fetchNodeMetrics(n NodeConf) NodeSnapshot {
 	snap := NodeSnapshot{
 		Name:     n.Name,
@@ -1287,6 +1500,228 @@ func main() {
 			"timestamp": time.Now().Unix(),
 			"rules":     snapRules,
 		})
+	})
+
+	// --- 被控端：远程修改节点配置 API（metrics token 鉴权） ---
+	// 校验 metrics token 的辅助函数
+	metricsAuth := func(c *gin.Context) bool {
+		authHeader := c.GetHeader("Authorization")
+		if panelConfig.Metrics.Token == "" || authHeader != "Bearer "+panelConfig.Metrics.Token {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+			return false
+		}
+		return true
+	}
+
+	// 远程修改 Xray Reality 配置
+	// 支持字段：sni, dest, port, short_id, fingerprint, spider_x
+	// 修改服务端 config.json + 客户端 reclient.json，然后重启 xray 服务
+	r.POST("/api/node/update-xray", func(c *gin.Context) {
+		if !metricsAuth(c) {
+			return
+		}
+		xrayConfigPath := "/usr/local/etc/xray/config.json"
+		xrayClientPath := "/usr/local/etc/xray/reclient.json"
+
+		if _, err := os.Stat(xrayConfigPath); err != nil {
+			c.JSON(404, gin.H{"error": "Xray 未安装"})
+			return
+		}
+
+		var req struct {
+			SNI         string `json:"sni"`
+			Dest        string `json:"dest"`
+			Port        int    `json:"port"`
+			ShortID     string `json:"short_id"`
+			Fingerprint string `json:"fingerprint"`
+			SpiderX     string `json:"spider_x"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "参数错误: " + err.Error()})
+			return
+		}
+
+		// --- 输入校验（接口可绕过前端直连，必须在被控侧校验） ---
+		if req.Port != 0 && (req.Port < 1 || req.Port > 65535) {
+			c.JSON(400, gin.H{"error": "端口无效 (1-65535)"})
+			return
+		}
+		if req.SNI != "" && !(reDomain.MatchString(req.SNI) && len(req.SNI) <= 253) {
+			c.JSON(400, gin.H{"error": "SNI 不是合法域名"})
+			return
+		}
+		if req.Dest != "" && !validateAddress(strings.Split(req.Dest, ":")[0]) {
+			c.JSON(400, gin.H{"error": "dest 地址无效"})
+			return
+		}
+		if req.ShortID != "" && !validateShortID(req.ShortID) {
+			c.JSON(400, gin.H{"error": "short_id 必须为偶数长度的十六进制（≤16 位）"})
+			return
+		}
+		if req.Fingerprint != "" && !validFingerprints[req.Fingerprint] {
+			c.JSON(400, gin.H{"error": "fingerprint 取值不在支持列表内"})
+			return
+		}
+
+		remoteCfgMu.Lock()
+		defer remoteCfgMu.Unlock()
+
+		data, err := os.ReadFile(xrayConfigPath)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "读取配置失败: " + err.Error()})
+			return
+		}
+		var cfg map[string]interface{}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			c.JSON(500, gin.H{"error": "解析配置失败: " + err.Error()})
+			return
+		}
+
+		// 修改 inbounds[0] 的相关字段
+		inbounds, ok := cfg["inbounds"].([]interface{})
+		if !ok || len(inbounds) == 0 {
+			c.JSON(500, gin.H{"error": "配置中未找到 inbounds"})
+			return
+		}
+		ib, ok := inbounds[0].(map[string]interface{})
+		if !ok {
+			c.JSON(500, gin.H{"error": "inbounds[0] 格式错误"})
+			return
+		}
+
+		if req.Port > 0 {
+			ib["port"] = req.Port
+		}
+
+		// 修改 Reality 服务端参数（fingerprint/spiderX 属于客户端参数，不写入服务端配置）
+		if ss, ok := ib["streamSettings"].(map[string]interface{}); ok {
+			if rs, ok := ss["realitySettings"].(map[string]interface{}); ok {
+				if req.SNI != "" {
+					rs["serverNames"] = []string{req.SNI}
+					if req.Dest != "" {
+						rs["dest"] = req.Dest
+					} else {
+						rs["dest"] = req.SNI + ":443"
+					}
+				} else if req.Dest != "" {
+					rs["dest"] = req.Dest
+				}
+				if req.ShortID != "" {
+					rs["shortIds"] = []string{req.ShortID}
+				}
+			}
+		}
+
+		newData, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			c.JSON(500, gin.H{"error": "序列化配置失败: " + err.Error()})
+			return
+		}
+
+		// 原子应用：先 xray -test 校验临时配置，通过才写入并重启，失败自动回滚
+		xrayTest := func(tmp string) error {
+			out, err := exec.Command("/usr/local/bin/xray", "run", "-test", "-config", tmp).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
+		if err := applyServiceConfig(xrayConfigPath, newData, "xray", xrayTest); err != nil {
+			c.JSON(500, gin.H{"error": "Xray 配置应用失败: " + err.Error()})
+			return
+		}
+
+		// 配置生效后再更新客户端 reclient.json 连接链接
+		updateXrayClientLink(xrayConfigPath, xrayClientPath, req.Fingerprint, req.SpiderX)
+
+		// 构建已修改字段摘要（不回显敏感值）
+		changed := []string{}
+		if req.SNI != "" { changed = append(changed, "sni") }
+		if req.Dest != "" { changed = append(changed, "dest") }
+		if req.Port != 0 { changed = append(changed, "port") }
+		if req.ShortID != "" { changed = append(changed, "short_id") }
+		if req.Fingerprint != "" { changed = append(changed, "fingerprint") }
+		if req.SpiderX != "" { changed = append(changed, "spider_x") }
+		log.Printf("[远程配置] Xray Reality 已更新 (来自 %s, 字段: %v)", c.ClientIP(), changed)
+		c.JSON(200, gin.H{"message": "Xray Reality 配置已更新并重启", "changed_fields": changed})
+	})
+
+	// 远程修改 Shadowsocks 配置
+	// 支持字段：port, password, method
+	r.POST("/api/node/update-ss", func(c *gin.Context) {
+		if !metricsAuth(c) {
+			return
+		}
+		ssConfigPath := "/etc/shadowsocks/config.json"
+
+		if _, err := os.Stat(ssConfigPath); err != nil {
+			c.JSON(404, gin.H{"error": "Shadowsocks 未安装"})
+			return
+		}
+
+		var req struct {
+			Port     int    `json:"port"`
+			Password string `json:"password"`
+			Method   string `json:"method"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "参数错误: " + err.Error()})
+			return
+		}
+
+		// --- 输入校验 ---
+		if req.Port != 0 && (req.Port < 1 || req.Port > 65535) {
+			c.JSON(400, gin.H{"error": "端口无效 (1-65535)"})
+			return
+		}
+		if req.Method != "" && !validSSMethods[req.Method] {
+			c.JSON(400, gin.H{"error": "加密方式不在支持列表内"})
+			return
+		}
+
+		remoteCfgMu.Lock()
+		defer remoteCfgMu.Unlock()
+
+		data, err := os.ReadFile(ssConfigPath)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "读取配置失败: " + err.Error()})
+			return
+		}
+		var cfg map[string]interface{}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			c.JSON(500, gin.H{"error": "解析配置失败: " + err.Error()})
+			return
+		}
+
+		if req.Port > 0 {
+			cfg["server_port"] = req.Port
+		}
+		if req.Password != "" {
+			cfg["password"] = req.Password
+		}
+		if req.Method != "" {
+			cfg["method"] = req.Method
+		}
+
+		newData, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			c.JSON(500, gin.H{"error": "序列化配置失败: " + err.Error()})
+			return
+		}
+
+		// SS 无独立的配置校验命令，靠重启后探活；失败自动回滚（含 method/password 不匹配等情况）
+		if err := applyServiceConfig(ssConfigPath, newData, "shadowsocks", nil); err != nil {
+			c.JSON(500, gin.H{"error": "Shadowsocks 配置应用失败: " + err.Error()})
+			return
+		}
+
+		// 构建已修改字段摘要（不回显密码等敏感值）
+		changed := []string{}
+		if req.Port != 0 { changed = append(changed, "port") }
+		if req.Password != "" { changed = append(changed, "password") }
+		if req.Method != "" { changed = append(changed, "method") }
+		log.Printf("[远程配置] Shadowsocks 已更新 (来自 %s, 字段: %v)", c.ClientIP(), changed)
+		c.JSON(200, gin.H{"message": "Shadowsocks 配置已更新并重启", "changed_fields": changed})
 	})
 
 	staticSubFS, _ := fs.Sub(staticFS, "static")
@@ -1678,6 +2113,88 @@ func main() {
 			}
 			log.Printf("删除监控节点: %s (%s)", removed.Name, removed.URL)
 			c.JSON(200, gin.H{"message": "节点已删除"})
+		})
+
+		// --- 主控端：代理转发远程节点配置修改 ---
+		// 前端传入被控端索引 + 协议类型 + 配置参数，主控端转发请求到对应被控端
+		api.POST("/api/remote-node/update", func(c *gin.Context) {
+			var input struct {
+				NodeIdx     int    `json:"node_idx"`     // 被控端在 nodes 数组中的索引
+				NodeType    string `json:"node_type"`    // "xray" 或 "ss"
+				SNI         string `json:"sni,omitempty"`
+				Dest        string `json:"dest,omitempty"`
+				Port        int    `json:"port,omitempty"`
+				ShortID     string `json:"short_id,omitempty"`
+				Fingerprint string `json:"fingerprint,omitempty"`
+				SpiderX     string `json:"spider_x,omitempty"`
+				Password    string `json:"password,omitempty"`
+				Method      string `json:"method,omitempty"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "参数错误: " + err.Error()})
+				return
+			}
+
+			// 查找对应的被控端节点
+			nodesMu.RLock()
+			if input.NodeIdx < 0 || input.NodeIdx >= len(panelConfig.Nodes) {
+				nodesMu.RUnlock()
+				c.JSON(404, gin.H{"error": "节点索引不存在"})
+				return
+			}
+			target := panelConfig.Nodes[input.NodeIdx]
+			nodesMu.RUnlock()
+
+			// 构造转发请求
+			var apiPath string
+			var body []byte
+			switch input.NodeType {
+			case "xray":
+				apiPath = "/api/node/update-xray"
+				body, _ = json.Marshal(map[string]interface{}{
+					"sni":         input.SNI,
+					"dest":        input.Dest,
+					"port":        input.Port,
+					"short_id":    input.ShortID,
+					"fingerprint": input.Fingerprint,
+					"spider_x":    input.SpiderX,
+				})
+			case "ss":
+				apiPath = "/api/node/update-ss"
+				body, _ = json.Marshal(map[string]interface{}{
+					"port":     input.Port,
+					"password": input.Password,
+					"method":   input.Method,
+				})
+			default:
+				c.JSON(400, gin.H{"error": "不支持的节点类型，应为 xray 或 ss"})
+				return
+			}
+
+			// 转发到被控端
+			client := &http.Client{Timeout: 30 * time.Second}
+			req, err := http.NewRequest("POST", target.URL+apiPath, bytes.NewReader(body))
+			if err != nil {
+				c.JSON(500, gin.H{"error": "构造请求失败: " + err.Error()})
+				return
+			}
+			req.Header.Set("Authorization", "Bearer "+target.Token)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				c.JSON(502, gin.H{"error": "连接被控端失败: " + err.Error()})
+				return
+			}
+			defer resp.Body.Close()
+
+			// 透传被控端的响应
+			respBody, _ := io.ReadAll(resp.Body)
+			var result gin.H
+			if err := json.Unmarshal(respBody, &result); err != nil {
+				result = gin.H{"raw_response": string(respBody)}
+			}
+			c.JSON(resp.StatusCode, result)
 		})
 
 		// 编辑规则（修改本机端口、目标地址、目标端口、备注、配额、重置日）

@@ -104,6 +104,37 @@ func TestBotTokenMaskRoundTrip(t *testing.T) {
 	}
 }
 
+// 远程配置修改的输入校验：挡住会导致节点重启失败的非法值
+func TestRemoteConfigValidators(t *testing.T) {
+	shortIDs := map[string]bool{
+		"88":               true, // 偶数长度 hex
+		"0123456789abcdef": true, // 16 位上限
+		"":                 false,
+		"8":                false, // 奇数长度
+		"xyz":              false, // 非 hex
+		"0123456789abcdef0": false, // 超 16 位
+	}
+	for in, want := range shortIDs {
+		if got := validateShortID(in); got != want {
+			t.Errorf("validateShortID(%q) = %v, want %v", in, got, want)
+		}
+	}
+
+	if !validFingerprints["chrome"] || !validFingerprints["firefox"] {
+		t.Error("常见指纹应在白名单内")
+	}
+	if validFingerprints["nonsense"] || validFingerprints[""] {
+		t.Error("非法指纹不应通过")
+	}
+
+	if !validSSMethods["aes-128-gcm"] || !validSSMethods["2022-blake3-aes-256-gcm"] {
+		t.Error("常见 SS 加密应在白名单内")
+	}
+	if validSSMethods["rc4-md5"] || validSSMethods[""] {
+		t.Error("不支持的 SS 加密不应通过")
+	}
+}
+
 // 验证 Realm 规则能落盘并读回
 func TestRealmRulesPersistence(t *testing.T) {
 	dir := t.TempDir()
