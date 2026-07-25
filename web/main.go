@@ -59,9 +59,9 @@ type ForwardRule struct {
 }
 
 type NodeConf struct {
-	Name  string `toml:"name"`
-	URL   string `toml:"url"`
-	Token string `toml:"token"`
+	Name  string `toml:"name" json:"name"`
+	URL   string `toml:"url" json:"url"`
+	Token string `toml:"token" json:"token"`
 }
 
 type RealmRule struct {

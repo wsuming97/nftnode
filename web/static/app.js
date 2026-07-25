@@ -959,11 +959,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         nodeManageList.innerHTML = nodes.map((n, idx) => {
+            const name = n.name || n.Name || '';
+            const url = n.url || n.URL || '';
+            const token = n.token || n.Token || '';
             return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
-                <strong style="flex:1;font-size:13px">${n.name}</strong>
-                <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${n.url}</span>
-                <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${n.token}">${n.token.substring(0,12)}...</span>
-                <button class="btn btn-outline btn-sm" data-edit-node="${idx}" data-node-name="${n.name}">编辑配置</button>
+                <strong style="flex:1;font-size:13px">${name}</strong>
+                <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${url}</span>
+                <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${token}">${token ? token.substring(0,12) + '...' : '-'}</span>
+                <button class="btn btn-outline btn-sm" data-edit-node="${idx}" data-node-name="${name}">编辑配置</button>
                 <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
             </div>`;
         }).join('');
